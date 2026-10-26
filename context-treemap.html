@@ -1,0 +1,1578 @@
+<!DOCTYPE html>
+<html lang="ja" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <title>Context Treemap — Zen Lab Tools</title>
+  <meta name="description" content="CLAUDE.md・AGENTS.md・SKILL.md 等のコンテキスト占有量を Squarified Treemap で階層可視化し、セクション単位のミュートでトークン削減効果を即座に試算するツール">
+  <style>
+    :root {
+      color-scheme: dark;
+      --color-primary: #e68a75;
+      --color-shu-red: #d64527;
+      --color-on-shu-red: #ffffff;
+      --color-background: #081617;
+      --color-on-surface: #f0f4f5;
+      --color-on-surface-variant: #9eb3b5;
+      --color-surface-container: #1b2f31;
+      --color-surface-container-low: #142527;
+      --color-surface-container-lowest: #0a1819;
+      --color-surface-container-high: #243c3e;
+      --color-ink-border: #334a4c;
+      --color-success: oklch(79.2% 0.209 151.711);
+      --focus-ring: 0 0 0 2px var(--color-background), 0 0 0 4px var(--color-shu-red);
+      --font-mincho: "Hiragino Mincho ProN", "YuMincho", "Yu Mincho", "Noto Serif CJK JP", serif;
+      --font-gothic: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "YuGothic", "Yu Gothic", "Noto Sans CJK JP", sans-serif;
+      --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      --radius-sm: 0.25rem;
+      --radius-md: 0.375rem;
+      --radius-lg: 0.5rem;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--color-background);
+      color: var(--color-on-surface);
+      font-family: var(--font-gothic);
+      line-height: 1.65;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .site-header {
+      border-bottom: 1px solid var(--color-ink-border);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: var(--font-mono);
+      font-size: 0.8125rem;
+      background: var(--color-surface-container-lowest);
+    }
+    .site-header a {
+      color: var(--color-on-surface-variant);
+      text-decoration: none;
+    }
+    .site-header a:hover { color: var(--color-primary); }
+    main {
+      max-width: 1280px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 24px 20px 64px;
+    }
+    h1 {
+      font-family: var(--font-mincho);
+      font-size: clamp(1.35rem, 1.1rem + 1vw, 2rem);
+      margin: 0 0 6px;
+      letter-spacing: 0.02em;
+    }
+    .subtitle {
+      margin: 0;
+      color: var(--color-on-surface-variant);
+      font-size: 0.9rem;
+    }
+    .top-bar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+    .toolbar-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .btn {
+      background: var(--color-surface-container);
+      color: var(--color-on-surface);
+      border: 1px solid var(--color-ink-border);
+      border-radius: var(--radius-md);
+      padding: 7px 13px;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+    .btn:hover {
+      background: var(--color-surface-container-high);
+      border-color: var(--color-primary);
+    }
+    .btn:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible {
+      outline: none;
+      box-shadow: var(--focus-ring);
+    }
+    .btn-primary {
+      background: var(--color-shu-red);
+      color: var(--color-on-shu-red);
+      border-color: var(--color-shu-red);
+    }
+    .btn-primary:hover {
+      background: color-mix(in oklab, var(--color-shu-red) 85%, white);
+      border-color: var(--color-primary);
+    }
+    .select-input {
+      background: var(--color-surface-container-low);
+      color: var(--color-on-surface);
+      border: 1px solid var(--color-ink-border);
+      border-radius: var(--radius-md);
+      padding: 6px 10px;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+    }
+
+    /* Budget & Metrics Summary */
+    .budget-panel {
+      background: var(--color-surface-container-low);
+      border: 1px solid var(--color-ink-border);
+      border-radius: var(--radius-lg);
+      padding: 16px 20px;
+      margin-bottom: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .metrics-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 12px;
+    }
+    .metric-card {
+      background: var(--color-surface-container-lowest);
+      border: 1px solid var(--color-ink-border);
+      border-radius: var(--radius-md);
+      padding: 10px 14px;
+    }
+    .metric-label {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--color-on-surface-variant);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .metric-value {
+      font-family: var(--font-mono);
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-top: 2px;
+      color: var(--color-on-surface);
+    }
+    .metric-sub {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--color-on-surface-variant);
+      margin-top: 2px;
+    }
+    .budget-bar-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .budget-bar-track {
+      height: 12px;
+      background: var(--color-surface-container-lowest);
+      border: 1px solid var(--color-ink-border);
+      border-radius: 999px;
+      overflow: hidden;
+      display: flex;
+      position: relative;
+    }
+    .budget-bar-active {
+      height: 100%;
+      background: linear-gradient(90deg, #2b6f73, var(--color-primary), var(--color-shu-red));
+      transition: width 0.25s ease;
+    }
+    .budget-bar-saved {
+      height: 100%;
+      background: repeating-linear-gradient(
+        -45deg,
+        rgba(230, 138, 117, 0.28),
+        rgba(230, 138, 117, 0.28) 5px,
+        rgba(20, 37, 39, 0.4) 5px,
+        rgba(20, 37, 39, 0.4) 10px
+      );
+      border-left: 1px dashed var(--color-primary);
+      transition: width 0.25s ease;
+    }
+    .budget-legend {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--color-on-surface-variant);
+    }
+
+    /* Main Workspace Grid */
+    .workspace {
+      display: grid;
+      grid-template-columns: 1.35fr 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+    @media (max-width: 960px) {
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .panel {
+      background: var(--color-surface-container-low);
+      border: 1px solid var(--color-ink-border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .panel-header {
+      padding: 12px 16px;
+      background: var(--color-surface-container);
+      border-bottom: 1px solid var(--color-ink-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .panel-title {
+      font-family: var(--font-mincho);
+      font-size: 0.98rem;
+      font-weight: 700;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .badge {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: var(--color-surface-container-lowest);
+      border: 1px solid var(--color-ink-border);
+      color: var(--color-primary);
+    }
+
+    /* Treemap Canvas Container */
+    .canvas-wrap {
+      position: relative;
+      width: 100%;
+      height: 460px;
+      background: var(--color-surface-container-lowest);
+      user-select: none;
+    }
+    #treemap-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      cursor: pointer;
+    }
+    .drop-overlay {
+      position: absolute;
+      inset: 8px;
+      border: 2px dashed var(--color-shu-red);
+      border-radius: var(--radius-md);
+      background: rgba(8, 22, 23, 0.88);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-mono);
+      font-size: 0.95rem;
+      color: var(--color-primary);
+      pointer-events: none;
+      z-index: 20;
+    }
+    .drop-overlay.active {
+      display: flex;
+    }
+
+    /* Floating Tooltip */
+    .treemap-tooltip {
+      position: fixed;
+      pointer-events: none;
+      z-index: 50;
+      background: rgba(10, 24, 25, 0.96);
+      border: 1px solid var(--color-primary);
+      border-radius: var(--radius-md);
+      padding: 10px 12px;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--color-on-surface);
+      max-width: 320px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+      display: none;
+    }
+    .tt-file {
+      color: var(--color-primary);
+      font-size: 0.7rem;
+      margin-bottom: 2px;
+    }
+    .tt-heading {
+      font-family: var(--font-gothic);
+      font-weight: 700;
+      font-size: 0.84rem;
+      margin-bottom: 6px;
+      color: var(--color-on-surface);
+    }
+    .tt-grid {
+      display: grid;
+      grid-template-columns: auto auto;
+      gap: 3px 12px;
+      border-top: 1px solid var(--color-ink-border);
+      padding-top: 6px;
+    }
+    .tt-hint {
+      margin-top: 6px;
+      padding-top: 4px;
+      border-top: 1px dashed var(--color-ink-border);
+      color: var(--color-on-surface-variant);
+      font-size: 0.68rem;
+    }
+
+    /* Selected Node Inspector Bar */
+    .inspector-bar {
+      padding: 12px 16px;
+      border-top: 1px solid var(--color-ink-border);
+      background: var(--color-surface-container-low);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+    }
+    .inspector-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+    .inspector-title {
+      font-weight: 700;
+      color: var(--color-on-surface);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .inspector-meta {
+      color: var(--color-on-surface-variant);
+      font-size: 0.73rem;
+    }
+
+    /* Right column: File Tabs + Section Tree + Live Editor */
+    .file-tabs {
+      display: flex;
+      gap: 6px;
+      padding: 10px 12px;
+      background: var(--color-surface-container-lowest);
+      border-bottom: 1px solid var(--color-ink-border);
+      overflow-x: auto;
+      align-items: center;
+    }
+    .file-tab {
+      background: var(--color-surface-container-low);
+      border: 1px solid var(--color-ink-border);
+      color: var(--color-on-surface-variant);
+      padding: 5px 10px;
+      border-radius: var(--radius-sm);
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      cursor: pointer;
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .file-tab.active {
+      background: var(--color-surface-container-high);
+      color: var(--color-on-surface);
+      border-color: var(--color-primary);
+    }
+    .file-tab.muted {
+      opacity: 0.55;
+      text-decoration: line-through;
+    }
+    .tab-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .sub-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--color-ink-border);
+      background: var(--color-surface-container);
+    }
+    .sub-tab {
+      flex: 1;
+      text-align: center;
+      padding: 8px 10px;
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--color-on-surface-variant);
+      cursor: pointer;
+    }
+    .sub-tab.active {
+      color: var(--color-on-surface);
+      border-bottom-color: var(--color-shu-red);
+      background: var(--color-surface-container-low);
+    }
+
+    .section-list {
+      max-height: 410px;
+      overflow-y: auto;
+      divide-y: 1px solid var(--color-ink-border);
+    }
+    .section-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 14px;
+      border-bottom: 1px solid color-mix(in oklab, var(--color-ink-border) 55%, transparent);
+      font-size: 0.82rem;
+      cursor: pointer;
+      transition: background 0.12s ease;
+    }
+    .section-row:hover {
+      background: var(--color-surface-container);
+    }
+    .section-row.selected {
+      background: color-mix(in oklab, var(--color-shu-red) 18%, var(--color-surface-container));
+      border-left: 3px solid var(--color-shu-red);
+    }
+    .section-row.muted {
+      opacity: 0.48;
+    }
+    .section-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      flex: 1;
+    }
+    .section-title {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .depth-badge {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--color-primary);
+      background: var(--color-surface-container-lowest);
+      border: 1px solid var(--color-ink-border);
+      padding: 1px 5px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+    .section-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--font-mono);
+      font-size: 0.74rem;
+      flex-shrink: 0;
+    }
+    .token-pill {
+      color: var(--color-on-surface);
+      font-weight: 600;
+    }
+    .pct-pill {
+      color: var(--color-on-surface-variant);
+      min-width: 44px;
+      text-align: right;
+    }
+
+    .editor-pane {
+      display: none;
+      flex-direction: column;
+      height: 410px;
+    }
+    .editor-pane.active {
+      display: flex;
+    }
+    .markdown-editor {
+      flex: 1;
+      width: 100%;
+      background: var(--color-surface-container-lowest);
+      color: var(--color-on-surface);
+      border: none;
+      padding: 14px;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      line-height: 1.6;
+      resize: none;
+    }
+    .editor-footer {
+      padding: 8px 14px;
+      background: var(--color-surface-container);
+      border-top: 1px solid var(--color-ink-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--color-on-surface-variant);
+    }
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: var(--color-surface-container-high);
+      border: 1px solid var(--color-primary);
+      color: var(--color-on-surface);
+      padding: 10px 16px;
+      border-radius: var(--radius-md);
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 0.2s ease, transform 0.2s ease;
+      pointer-events: none;
+      z-index: 100;
+    }
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <a href="./">← tools.zen-lab.dev</a>
+    <a href="./colophon.html#context-treemap.html">Docs &amp; History</a>
+  </header>
+
+  <main>
+    <div class="top-bar">
+      <div>
+        <h1>Context Treemap</h1>
+        <p class="subtitle">CLAUDE.md / AGENTS.md / SKILL.md のトークン占有量を階層ツリーマップで可視化・剪定シミュレーション</p>
+      </div>
+      <div class="toolbar-actions">
+        <label for="budget-select" style="font-family: var(--font-mono); font-size: 0.76rem; color: var(--color-on-surface-variant);">予算枠:</label>
+        <select id="budget-select" class="select-input" aria-label="目標コンテキスト予算トークン数">
+          <option value="4000">4,000 tokens (軽量常駐)</option>
+          <option value="8000" selected>8,000 tokens (推奨システム枠)</option>
+          <option value="16000">16,000 tokens (中規模スキル群)</option>
+          <option value="32000">32,000 tokens (大規模リポジトリ)</option>
+          <option value="200000">200,000 tokens (フルコンテキスト)</option>
+        </select>
+        <button type="button" class="btn" id="btn-load-sample">サンプル読込</button>
+        <button type="button" class="btn" id="btn-upload-file">ファイル追加 (.md)</button>
+        <input type="file" id="file-input" accept=".md,.txt,.json,.yaml,.yml" multiple hidden>
+        <button type="button" class="btn btn-primary" id="btn-copy-pruned">剪定後のMDをコピー</button>
+      </div>
+    </div>
+
+    <section class="budget-panel" aria-label="トークン予算メーター">
+      <div class="metrics-row">
+        <div class="metric-card">
+          <div class="metric-label"><span>有効トークン数 (推定)</span><span>ACTIVE</span></div>
+          <div class="metric-value" id="metric-active-tokens">0</div>
+          <div class="metric-sub" id="metric-active-chars">0 文字 · 0 セクション</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label"><span>予算消費率</span><span>BUDGET</span></div>
+          <div class="metric-value" id="metric-budget-pct">0.0%</div>
+          <div class="metric-sub" id="metric-budget-status">目標枠内</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label"><span>剪定・ミュート削減量</span><span>PRUNED</span></div>
+          <div class="metric-value" id="metric-saved-tokens" style="color: var(--color-primary);">0</div>
+          <div class="metric-sub" id="metric-saved-pct">全体の 0.0% をミュート中</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label"><span>コードブロック占有率</span><span>CODE RATIO</span></div>
+          <div class="metric-value" id="metric-code-ratio">0.0%</div>
+          <div class="metric-sub" id="metric-code-tokens">コード例: 0 tokens</div>
+        </div>
+      </div>
+
+      <div class="budget-bar-wrap">
+        <div class="budget-bar-track">
+          <div class="budget-bar-active" id="bar-active" style="width: 0%"></div>
+          <div class="budget-bar-saved" id="bar-saved" style="width: 0%"></div>
+        </div>
+        <div class="budget-legend">
+          <span id="legend-summary">ファイルをドロップするか、ツリーマップのセルをクリックしてセクション詳細・ミュートを試せます。</span>
+          <span>クリック: セクション選択 / ダブルクリック・チェックボックス: ミュート切替</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="workspace">
+      <!-- Left: Squarified Treemap Canvas -->
+      <section class="panel" aria-label="Squarified Treemap">
+        <div class="panel-header">
+          <h2 class="panel-title">
+            <span>Squarified Context Map</span>
+            <span class="badge" id="treemap-scope-badge">全ファイル表示</span>
+          </h2>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <button type="button" class="btn" id="btn-unmute-all" style="padding: 4px 9px; font-size: 0.72rem;">全ミュート解除</button>
+            <button type="button" class="btn" id="btn-mute-code-heavy" style="padding: 4px 9px; font-size: 0.72rem;">肥大セクションを自動検出</button>
+          </div>
+        </div>
+
+        <div class="canvas-wrap" id="canvas-container">
+          <canvas id="treemap-canvas"></canvas>
+          <div class="drop-overlay" id="drop-overlay">.md / .txt ファイルをここにドロップして解析</div>
+        </div>
+
+        <div class="inspector-bar" id="inspector-bar">
+          <div class="inspector-info">
+            <div class="inspector-title" id="insp-title">セルにカーソルを合わせるかクリックしてください</div>
+            <div class="inspector-meta" id="insp-meta">面積＝推定トークン数（日本語文字・英単語・コード記号のハイブリッド推定）</div>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <button type="button" class="btn" id="btn-toggle-selected" disabled>選択セクションをミュート</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right: Files, Section Breakdown & Live Markdown Editor -->
+      <section class="panel" aria-label="セクション一覧とエディタ">
+        <div class="file-tabs" id="file-tabs" role="tablist" aria-label="解析対象ファイル"></div>
+
+        <div class="sub-tabs">
+          <button type="button" class="sub-tab active" id="tab-btn-sections">セクション内訳 (<span id="section-count">0</span>)</button>
+          <button type="button" class="sub-tab" id="tab-btn-editor">Markdown ライブ編集</button>
+        </div>
+
+        <div class="section-list" id="section-list"></div>
+
+        <div class="editor-pane" id="editor-pane">
+          <textarea id="markdown-editor" class="markdown-editor" spellcheck="false" aria-label="Markdown ソース編集"></textarea>
+          <div class="editor-footer">
+            <span id="editor-file-label">AGENTS.md</span>
+            <button type="button" class="btn" id="btn-new-file" style="padding: 3px 8px; font-size: 0.7rem;">＋ 新規仮想ファイル追加</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div class="treemap-tooltip" id="tooltip"></div>
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // Color palette harmonized with Zen Lab Dark theme
+    const FILE_PALETTES = [
+      { base: "#d64527", light: "#e68a75", dark: "#4e1d14", border: "#f29b88", name: "Shu Red" },
+      { base: "#2b7a78", light: "#5cbdb9", dark: "#163837", border: "#7fd6d2", name: "Seigaiha Teal" },
+      { base: "#b87d32", light: "#e3b26b", dark: "#442f12", border: "#f0c78a", name: "Kitsune Amber" },
+      { base: "#4c6a92", light: "#89a8d0", dark: "#1c2838", border: "#a5c0e3", name: "Ai Indigo" },
+      { base: "#6b7b4c", light: "#a8ba86", dark: "#272e1b", border: "#c1d1a3", name: "Matcha Moss" },
+      { base: "#8c536b", light: "#c88ea6", dark: "#361e28", border: "#deb0c3", name: "Suo Plum" }
+    ];
+
+    const SAMPLE_FILES = [
+      {
+        id: "file-agents",
+        name: "AGENTS.md",
+        muted: false,
+        content: `# 基本方針 (Global Agent Rules)
+
+- 常に日本語で回答し、時刻に関する言及やログ出力はすべて日本標準時（JST / Asia/Tokyo）を使用すること
+- コード生成は変更部分のみをわかりやすく説明・提示すること
+- シークレット（APIキー・トークン・パスワード）は必ず環境変数で管理し、ハードコードしない
+
+## Git & PR 運用原則
+
+1タスク = 1ブランチ = 1PR を徹底する。既存の作業中ブランチに無関係な修正を混同コミットしない。
+
+\`\`\`bash
+git worktree add .local/__worktree/{BRANCH_NAME} -b {BRANCH_NAME}
+cd .local/__worktree/{BRANCH_NAME}
+cp .env .local/__worktree/{BRANCH_NAME}/
+\`\`\`
+
+## CI監視・バックグラウンドジョブ規則
+
+CI を待つときは \`gh pr checks <n> --watch\` をバックグラウンドで実行する。
+再 push した場合は古い監視タスクを停止してから新しい監視を立て直すこと。
+
+## レビュー知見の保存ルール (Knowledge Capture)
+
+レビュー完了後、新規知見があれば \`memory/review-pr{番号}-{トピック}.md\` に保存する。
+保存すべき内容:
+- 問題の背景と根本原因の分析
+- 検討した代替アプローチの比較表
+- 具体的な指摘ポイントと推奨改善コード例`
+      },
+      {
+        id: "file-skill-ui",
+        name: "skills/zen-ui-design/SKILL.md",
+        muted: false,
+        content: `# Zen Lab Design System Skill
+
+Zen Lab の単一 HTML ツールを構築する際のデザイントークンおよび UI 設計規約。
+
+## カラートークン定義 (CSS Custom Properties)
+
+すべてのツールは以下のダークテーマ変数と明朝・ゴシック・等幅フォント定義を継承する。
+
+\`\`\`css
+:root {
+  color-scheme: dark;
+  --color-primary: #e68a75;
+  --color-shu-red: #d64527;
+  --color-background: #081617;
+  --color-on-surface: #f0f4f5;
+  --color-surface-container: #1b2f31;
+  --color-ink-border: #334a4c;
+  --font-mincho: "Hiragino Mincho ProN", "YuMincho", serif;
+  --font-gothic: "Hiragino Sans", "YuGothic", sans-serif;
+}
+\`\`\`
+
+## インタラクティブ要件とアクセシビリティ
+
+- 初期表示時に手元のファイルがなくてもすぐ試せる「サンプルデータ」を必ず組み込む
+- フォーカスリング（\`--focus-ring\`）を全ボタン・入力要素に適用する
+- Webフォントは読み込まず、OS標準フォントで高速描画する`
+      },
+      {
+        id: "file-skill-db",
+        name: "skills/bigquery-audit/SKILL.md",
+        muted: false,
+        content: `# BigQuery クエリコスト監査スキル
+
+データウェアハウスへのクエリ発行前にパーティションフィルタとスキャン量を検証する手順。
+
+## 必須ドライラン検証
+
+本番テーブルに対してクエリを実行する前に必ず \`--dry_run\` でスキャン推定バイト数を確認すること。10GB を超えるスキャンはユーザー承認を必須とする。
+
+\`\`\`sql
+SELECT
+  event_date,
+  user_pseudo_id,
+  COUNT(1) AS event_count
+FROM \`project.analytics.events_*\`
+WHERE _TABLE_SUFFIX BETWEEN '20261001' AND '20261026'
+GROUP BY 1, 2
+\`\`\`
+
+## よくあるアンチパターン集 (冗長なレガシー手順)
+
+以下は旧データ基盤（2024年廃止済み）向けの互換性レイヤー定義です。現在は利用頻度が低いためコンテキスト圧迫時はミュート推奨。
+
+\`\`\`json
+{
+  "legacy_warehouse_ shards": [
+    "tokyo-prod-replica-01.internal.example.com",
+    "tokyo-prod-replica-02.internal.example.com",
+    "osaka-dr-backup-01.internal.example.com"
+  ],
+  "deprecated_table_mappings": {
+    "v1_users_daily": "analytics_v2.dim_users_snapshot",
+    "v1_orders_raw": "analytics_v2.fact_orders_partitioned",
+    "v1_clickstream_log": "analytics_v2.fact_web_events_clustered"
+  }
+}
+\`\`\``
+      }
+    ];
+
+    // State
+    let files = [];
+    let activeFileId = "";
+    let selectedSectionId = null;
+    let hoveredRect = null;
+    let renderedRects = [];
+    let targetBudget = 8000;
+
+    // Hybrid Token Estimator for Japanese + English + Code
+    function estimateTokensDetailed(text) {
+      if (!text) return { total: 0, code: 0, prose: 0, chars: 0, lines: 0 };
+      const lines = text.split(/\r?\n/);
+      let inCode = false;
+      let codeTokens = 0;
+      let proseTokens = 0;
+
+      for (const line of lines) {
+        if (line.trim().startsWith("```")) {
+          inCode = !inCode;
+          codeTokens += 2;
+          continue;
+        }
+        const t = countLineTokens(line);
+        if (inCode) {
+          codeTokens += t;
+        } else {
+          proseTokens += t;
+        }
+      }
+      const total = Math.max(1, Math.round(codeTokens + proseTokens));
+      return {
+        total,
+        code: Math.round(codeTokens),
+        prose: Math.round(proseTokens),
+        chars: text.length,
+        lines: lines.length
+      };
+    }
+
+    function countLineTokens(str) {
+      if (!str) return 0;
+      let cjkCount = 0;
+      let asciiSymbols = 0;
+      for (let i = 0; i < str.length; i++) {
+        const code = str.charCodeAt(i);
+        if (
+          (code >= 0x3000 && code <= 0x9fff) ||
+          (code >= 0xf900 && code <= 0xfaff) ||
+          (code >= 0xff00 && code <= 0xffef)
+        ) {
+          cjkCount++;
+        } else if (code > 32 && code < 127) {
+          const ch = str[i];
+          if (/[^\w\s]/.test(ch)) asciiSymbols++;
+        }
+      }
+      const asciiOnly = str.replace(/[\u3000-\u9fff\uf900-\ufaff\uff00-\uffef]/g, " ");
+      const words = asciiOnly.trim().split(/\s+/).filter(Boolean);
+      let wordTokens = 0;
+      for (const w of words) {
+        wordTokens += Math.max(1, Math.ceil(w.length / 4.2));
+      }
+      // CJK characters in cl100k / o200k / Claude tokenizer average ~1.15 tokens per char
+      return cjkCount * 1.15 + wordTokens + asciiSymbols * 0.35;
+    }
+
+    // Parse a Markdown document into sections (#, ##, ###)
+    function parseMarkdownSections(fileObj, paletteIndex) {
+      const lines = fileObj.content.split(/\r?\n/);
+      const sections = [];
+      let current = {
+        id: `${fileObj.id}::sec-0`,
+        fileId: fileObj.id,
+        fileName: fileObj.name,
+        paletteIndex,
+        heading: "(冒頭 / Frontmatter)",
+        depth: 0,
+        lines: [],
+        startLine: 1
+      };
+      let inCodeBlock = false;
+      let secIndex = 1;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (line.trim().startsWith("```")) {
+          inCodeBlock = !inCodeBlock;
+        }
+        const headingMatch = !inCodeBlock && line.match(/^(#{1,4})\s+(.+)$/);
+        if (headingMatch) {
+          if (current.lines.join("").trim().length > 0) {
+            sections.push(finalizeSection(current, fileObj.mutedMap));
+          }
+          current = {
+            id: `${fileObj.id}::sec-${secIndex++}`,
+            fileId: fileObj.id,
+            fileName: fileObj.name,
+            paletteIndex,
+            heading: headingMatch[2].trim(),
+            depth: headingMatch[1].length,
+            lines: [line],
+            startLine: i + 1
+          };
+        } else {
+          current.lines.push(line);
+        }
+      }
+
+      if (current.lines.join("").trim().length > 0 || sections.length === 0) {
+        sections.push(finalizeSection(current, fileObj.mutedMap));
+      }
+      return sections;
+    }
+
+    function finalizeSection(sec, mutedMap) {
+      const rawText = sec.lines.join("\n");
+      const stats = estimateTokensDetailed(rawText);
+      const isMuted = mutedMap && mutedMap[sec.heading] === true;
+      return {
+        ...sec,
+        rawText,
+        tokens: stats.total,
+        codeTokens: stats.code,
+        proseTokens: stats.prose,
+        chars: stats.chars,
+        lineCount: stats.lines,
+        muted: Boolean(isMuted)
+      };
+    }
+
+    function rebuildAllSections() {
+      files.forEach((f, idx) => {
+        if (!f.mutedMap) f.mutedMap = {};
+        f.paletteIndex = idx % FILE_PALETTES.length;
+        f.sections = parseMarkdownSections(f, f.paletteIndex);
+        if (f.muted) {
+          f.sections.forEach((s) => { s.muted = true; });
+        }
+      });
+    }
+
+    // Squarified Treemap Algorithm (Bruls, Huizing, van Wijk)
+    function computeSquarifiedTreemap(items, x, y, w, h) {
+      const results = [];
+      const valid = items.filter((it) => it.value > 0).sort((a, b) => b.value - a.value);
+      const totalValue = valid.reduce((acc, it) => acc + it.value, 0);
+      if (valid.length === 0 || totalValue <= 0 || w <= 0 || h <= 0) return results;
+
+      const totalArea = w * h;
+      const normalized = valid.map((it) => ({
+        ...it,
+        area: (it.value / totalValue) * totalArea
+      }));
+
+      function worstAspectRatio(row, sideLength) {
+        if (row.length === 0 || sideLength <= 0) return Infinity;
+        let sum = 0;
+        let maxA = 0;
+        let minA = Infinity;
+        for (const item of row) {
+          sum += item.area;
+          if (item.area > maxA) maxA = item.area;
+          if (item.area < minA) minA = item.area;
+        }
+        const s2 = sum * sum;
+        const w2 = sideLength * sideLength;
+        return Math.max((w2 * maxA) / s2, s2 / (w2 * minA));
+      }
+
+      function layoutRow(row, rx, ry, rw, rh) {
+        const rowArea = row.reduce((acc, it) => acc + it.area, 0);
+        const horizontal = rw >= rh;
+        if (horizontal) {
+          const rowWidth = rw > 0 ? rowArea / rh : 0;
+          let cy = ry;
+          for (const it of row) {
+            const itemHeight = rowWidth > 0 ? it.area / rowWidth : 0;
+            results.push({ ...it, x: rx, y: cy, w: rowWidth, h: itemHeight });
+            cy += itemHeight;
+          }
+          return { x: rx + rowWidth, y: ry, w: Math.max(0, rw - rowWidth), h: rh };
+        } else {
+          const rowHeight = rh > 0 ? rowArea / rw : 0;
+          let cx = rx;
+          for (const it of row) {
+            const itemWidth = rowHeight > 0 ? it.area / rowHeight : 0;
+            results.push({ ...it, x: cx, y: ry, w: itemWidth, h: rowHeight });
+            cx += itemWidth;
+          }
+          return { x: rx, y: ry + rowHeight, w: rw, h: Math.max(0, rh - rowHeight) };
+        }
+      }
+
+      let rect = { x, y, w, h };
+      let currentRow = [];
+      let remaining = normalized.slice();
+
+      while (remaining.length > 0) {
+        const shortSide = Math.min(rect.w, rect.h);
+        const nextItem = remaining[0];
+        if (
+          currentRow.length === 0 ||
+          worstAspectRatio([...currentRow, nextItem], shortSide) <=
+            worstAspectRatio(currentRow, shortSide)
+        ) {
+          currentRow.push(nextItem);
+          remaining.shift();
+        } else {
+          rect = layoutRow(currentRow, rect.x, rect.y, rect.w, rect.h);
+          currentRow = [];
+        }
+      }
+      if (currentRow.length > 0) {
+        layoutRow(currentRow, rect.x, rect.y, rect.w, rect.h);
+      }
+      return results;
+    }
+
+    // Render Nested Squarified Treemap (Files -> Sections)
+    function renderTreemap() {
+      const canvas = document.getElementById("treemap-canvas");
+      const container = document.getElementById("canvas-container");
+      const dpr = window.devicePixelRatio || 1;
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+      canvas.width = Math.floor(width * dpr);
+      canvas.height = Math.floor(height * dpr);
+
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+
+      renderedRects = [];
+
+      const fileItems = files.map((f) => {
+        const totalFileTokens = f.sections.reduce((acc, s) => acc + s.tokens, 0);
+        return {
+          file: f,
+          value: Math.max(1, totalFileTokens)
+        };
+      });
+
+      const outerRects = computeSquarifiedTreemap(fileItems, 6, 6, width - 12, height - 12);
+
+      for (const fRect of outerRects) {
+        const f = fRect.file;
+        const pal = FILE_PALETTES[f.paletteIndex % FILE_PALETTES.length];
+        const pad = 4;
+        const headerH = 22;
+
+        // Draw file group frame
+        ctx.fillStyle = "#0d1f21";
+        ctx.strokeStyle = f.id === activeFileId ? pal.light : "#263c3e";
+        ctx.lineWidth = f.id === activeFileId ? 1.5 : 1;
+        ctx.beginPath();
+        ctx.roundRect(fRect.x + 2, fRect.y + 2, Math.max(0, fRect.w - 4), Math.max(0, fRect.h - 4), 5);
+        ctx.fill();
+        ctx.stroke();
+
+        // Draw file header label
+        if (fRect.w > 60 && fRect.h > 32) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(fRect.x + 6, fRect.y + 4, Math.max(0, fRect.w - 12), headerH);
+          ctx.clip();
+          ctx.fillStyle = pal.light;
+          ctx.font = '600 11px ui-monospace, "SF Mono", Menlo, monospace';
+          const fileActiveTokens = f.sections.reduce((a, s) => a + (s.muted ? 0 : s.tokens), 0);
+          ctx.fillText(`${f.name} (${fileActiveTokens.toLocaleString()} tok)`, fRect.x + 8, fRect.y + 18);
+          ctx.restore();
+        }
+
+        // Compute inner section rectangles
+        const innerX = fRect.x + pad + 2;
+        const innerY = fRect.y + headerH + 3;
+        const innerW = Math.max(0, fRect.w - (pad + 2) * 2);
+        const innerH = Math.max(0, fRect.h - headerH - pad - 5);
+
+        const secItems = f.sections.map((s) => ({
+          section: s,
+          value: Math.max(1, s.tokens)
+        }));
+
+        const secRects = computeSquarifiedTreemap(secItems, innerX, innerY, innerW, innerH);
+
+        for (const sRect of secRects) {
+          const sec = sRect.section;
+          const rx = sRect.x + 1.5;
+          const ry = sRect.y + 1.5;
+          const rw = Math.max(0, sRect.w - 3);
+          const rh = Math.max(0, sRect.h - 3);
+          if (rw <= 0 || rh <= 0) continue;
+
+          const isSelected = selectedSectionId === sec.id;
+          const isHovered = hoveredRect && hoveredRect.section.id === sec.id;
+
+          renderedRects.push({
+            x: rx,
+            y: ry,
+            w: rw,
+            h: rh,
+            section: sec,
+            palette: pal
+          });
+
+          ctx.save();
+          ctx.beginPath();
+          ctx.roundRect(rx, ry, rw, rh, 3);
+
+          if (sec.muted) {
+            ctx.fillStyle = "#112022";
+            ctx.fill();
+            // Diagonal hatch for muted sections
+            ctx.clip();
+            ctx.strokeStyle = "rgba(158, 179, 181, 0.14)";
+            ctx.lineWidth = 1;
+            for (let d = -rh; d < rw + rh; d += 8) {
+              ctx.beginPath();
+              ctx.moveTo(rx + d, ry);
+              ctx.lineTo(rx + d - rh, ry + rh);
+              ctx.stroke();
+            }
+          } else {
+            // Color intensity by code ratio & depth
+            const codeRatio = sec.tokens > 0 ? sec.codeTokens / sec.tokens : 0;
+            ctx.fillStyle = codeRatio > 0.45 ? pal.base : pal.dark;
+            ctx.fill();
+          }
+
+          ctx.lineWidth = isSelected ? 2.2 : isHovered ? 1.8 : 1;
+          ctx.strokeStyle = isSelected
+            ? "#ffffff"
+            : isHovered
+            ? pal.light
+            : sec.muted
+            ? "#24383a"
+            : pal.border;
+          ctx.stroke();
+
+          // Text labels inside cell
+          if (rw > 42 && rh > 24) {
+            ctx.beginPath();
+            ctx.rect(rx + 4, ry + 3, rw - 8, rh - 6);
+            ctx.clip();
+
+            ctx.fillStyle = sec.muted ? "#687e80" : "#f0f4f5";
+            ctx.font = '600 11.5px "Hiragino Sans", "YuGothic", sans-serif';
+            const prefix = sec.depth > 0 ? "#".repeat(sec.depth) + " " : "";
+            ctx.fillText(prefix + sec.heading, rx + 6, ry + 16);
+
+            if (rh > 38) {
+              ctx.fillStyle = sec.muted ? "#55686a" : pal.light;
+              ctx.font = '10.5px ui-monospace, "SF Mono", Menlo, monospace';
+              const statusTxt = sec.muted
+                ? `MUTED (-${sec.tokens} tok)`
+                : `${sec.tokens.toLocaleString()} tok`;
+              ctx.fillText(statusTxt, rx + 6, ry + 31);
+            }
+          }
+          ctx.restore();
+        }
+      }
+    }
+
+    // Update top metrics and UI lists
+    function updateAllUI() {
+      rebuildAllSections();
+
+      const allSections = files.flatMap((f) => f.sections);
+      const totalTokens = allSections.reduce((a, s) => a + s.tokens, 0);
+      const activeTokens = allSections.reduce((a, s) => a + (s.muted ? 0 : s.tokens), 0);
+      const savedTokens = totalTokens - activeTokens;
+      const activeChars = allSections.reduce((a, s) => a + (s.muted ? 0 : s.chars), 0);
+      const activeSectionCount = allSections.filter((s) => !s.muted).length;
+      const activeCodeTokens = allSections.reduce((a, s) => a + (s.muted ? 0 : s.codeTokens), 0);
+
+      const budgetPct = targetBudget > 0 ? (activeTokens / targetBudget) * 100 : 0;
+      const savedPct = totalTokens > 0 ? (savedTokens / totalTokens) * 100 : 0;
+      const codeRatio = activeTokens > 0 ? (activeCodeTokens / activeTokens) * 100 : 0;
+
+      document.getElementById("metric-active-tokens").textContent = activeTokens.toLocaleString();
+      document.getElementById("metric-active-chars").textContent =
+        `${activeChars.toLocaleString()} 文字 · ${activeSectionCount}/${allSections.length} セクション`;
+
+      const pctEl = document.getElementById("metric-budget-pct");
+      pctEl.textContent = `${budgetPct.toFixed(1)}%`;
+      pctEl.style.color = budgetPct > 100 ? "var(--color-shu-red)" : "var(--color-on-surface)";
+
+      const statusEl = document.getElementById("metric-budget-status");
+      if (budgetPct > 100) {
+        statusEl.textContent = `予算超過 (+${(activeTokens - targetBudget).toLocaleString()} tokens)`;
+        statusEl.style.color = "var(--color-primary)";
+      } else {
+        statusEl.textContent = `残り ${(targetBudget - activeTokens).toLocaleString()} tokens 余裕あり`;
+        statusEl.style.color = "var(--color-on-surface-variant)";
+      }
+
+      document.getElementById("metric-saved-tokens").textContent =
+        savedTokens > 0 ? `-${savedTokens.toLocaleString()}` : "0";
+      document.getElementById("metric-saved-pct").textContent =
+        `全体の ${savedPct.toFixed(1)}% を剪定ミュート中`;
+
+      document.getElementById("metric-code-ratio").textContent = `${codeRatio.toFixed(1)}%`;
+      document.getElementById("metric-code-tokens").textContent =
+        `コード例: ${activeCodeTokens.toLocaleString()} tokens`;
+
+      // Progress bar widths
+      const denom = Math.max(targetBudget, totalTokens, 1);
+      const activeBarW = Math.min(100, (activeTokens / denom) * 100);
+      const savedBarW = Math.min(100 - activeBarW, (savedTokens / denom) * 100);
+      document.getElementById("bar-active").style.width = `${activeBarW}%`;
+      document.getElementById("bar-saved").style.width = `${savedBarW}%`;
+
+      renderFileTabs();
+      renderSectionList();
+      updateInspectorBar();
+      renderTreemap();
+    }
+
+    function renderFileTabs() {
+      const container = document.getElementById("file-tabs");
+      container.innerHTML = "";
+      files.forEach((f) => {
+        const pal = FILE_PALETTES[f.paletteIndex % FILE_PALETTES.length];
+        const fileTokens = f.sections.reduce((a, s) => a + (s.muted ? 0 : s.tokens), 0);
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = `file-tab ${f.id === activeFileId ? "active" : ""} ${f.muted ? "muted" : ""}`;
+        btn.innerHTML = `<span class="tab-dot" style="background:${pal.light}"></span><span>${escapeHtml(f.name)}</span><span style="opacity:0.75">(${fileTokens})</span>`;
+        btn.addEventListener("click", () => {
+          activeFileId = f.id;
+          syncEditorWithActiveFile();
+          updateAllUI();
+        });
+        container.appendChild(btn);
+      });
+    }
+
+    function renderSectionList() {
+      const listEl = document.getElementById("section-list");
+      listEl.innerHTML = "";
+      const activeFile = files.find((f) => f.id === activeFileId) || files[0];
+      if (!activeFile) return;
+
+      const totalActive = files.flatMap((f) => f.sections).reduce((a, s) => a + (s.muted ? 0 : s.tokens), 0);
+      document.getElementById("section-count").textContent = String(activeFile.sections.length);
+
+      for (const sec of activeFile.sections) {
+        const row = document.createElement("div");
+        row.className = `section-row ${sec.id === selectedSectionId ? "selected" : ""} ${sec.muted ? "muted" : ""}`;
+
+        const pct = totalActive > 0 && !sec.muted ? ((sec.tokens / totalActive) * 100).toFixed(1) + "%" : "MUTED";
+        const depthLabel = sec.depth === 0 ? "TOP" : "H" + sec.depth;
+
+        row.innerHTML = `
+          <div class="section-left">
+            <input type="checkbox" ${!sec.muted ? "checked" : ""} aria-label="${escapeHtml(sec.heading)} を有効化">
+            <span class="depth-badge">${depthLabel}</span>
+            <span class="section-title" title="${escapeHtml(sec.heading)}">${escapeHtml(sec.heading)}</span>
+          </div>
+          <div class="section-right">
+            <span class="token-pill">${sec.tokens.toLocaleString()} tok</span>
+            <span class="pct-pill">${pct}</span>
+          </div>
+        `;
+
+        const checkbox = row.querySelector("input");
+        checkbox.addEventListener("click", (e) => {
+          e.stopPropagation();
+          toggleSectionMute(sec);
+        });
+
+        row.addEventListener("click", () => {
+          selectedSectionId = sec.id;
+          updateAllUI();
+        });
+
+        listEl.appendChild(row);
+      }
+    }
+
+    function toggleSectionMute(sec) {
+      const f = files.find((file) => file.id === sec.fileId);
+      if (!f) return;
+      if (!f.mutedMap) f.mutedMap = {};
+      f.mutedMap[sec.heading] = !sec.muted;
+      f.muted = false;
+      updateAllUI();
+    }
+
+    function updateInspectorBar() {
+      const allSecs = files.flatMap((f) => f.sections);
+      const sec = allSecs.find((s) => s.id === selectedSectionId);
+      const titleEl = document.getElementById("insp-title");
+      const metaEl = document.getElementById("insp-meta");
+      const btn = document.getElementById("btn-toggle-selected");
+
+      if (!sec) {
+        titleEl.textContent = "セルをクリックしてセクションを選択（ダブルクリックで即時ミュート切替）";
+        metaEl.textContent = "面積＝推定トークン数 · 枠線＝ファイルグループ · 斜線セル＝ミュート（剪定対象）";
+        btn.disabled = true;
+        btn.textContent = "選択セクションをミュート";
+        return;
+      }
+
+      titleEl.textContent = `[${sec.fileName}] ${sec.depth > 0 ? "#".repeat(sec.depth) + " " : ""}${sec.heading}`;
+      metaEl.textContent = `${sec.tokens.toLocaleString()} tokens (散文 ${sec.proseTokens} / コード ${sec.codeTokens}) · ${sec.chars.toLocaleString()} 文字 · ${sec.lineCount} 行`;
+      btn.disabled = false;
+      btn.textContent = sec.muted ? "ミュートを解除する" : "このセクションをミュート";
+    }
+
+    function syncEditorWithActiveFile() {
+      const activeFile = files.find((f) => f.id === activeFileId) || files[0];
+      if (!activeFile) return;
+      const editor = document.getElementById("markdown-editor");
+      editor.value = activeFile.content;
+      document.getElementById("editor-file-label").textContent = `${activeFile.name} を編集中（リアルタイム反映）`;
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById("toast");
+      t.textContent = msg;
+      t.classList.add("show");
+      clearTimeout(showToast._timer);
+      showToast._timer = setTimeout(() => t.classList.remove("show"), 2600);
+    }
+
+    // Canvas Pointer Interactions
+    function setupCanvasEvents() {
+      const canvas = document.getElementById("treemap-canvas");
+      const tooltip = document.getElementById("tooltip");
+
+      function findHitRect(clientX, clientY) {
+        const bounds = canvas.getBoundingClientRect();
+        const mx = clientX - bounds.left;
+        const my = clientY - bounds.top;
+        for (const r of renderedRects) {
+          if (mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h) {
+            return r;
+          }
+        }
+        return null;
+      }
+
+      canvas.addEventListener("mousemove", (e) => {
+        const hit = findHitRect(e.clientX, e.clientY);
+        if (hit !== hoveredRect) {
+          hoveredRect = hit;
+          renderTreemap();
+        }
+        if (hit) {
+          const s = hit.section;
+          const budgetPct = ((s.tokens / targetBudget) * 100).toFixed(1);
+          tooltip.style.display = "block";
+          tooltip.style.left = `${Math.min(window.innerWidth - 330, e.clientX + 14)}px`;
+          tooltip.style.top = `${Math.min(window.innerHeight - 170, e.clientY + 14)}px`;
+          tooltip.innerHTML = `
+            <div class="tt-file">${escapeHtml(s.fileName)}</div>
+            <div class="tt-heading">${s.depth > 0 ? "#".repeat(s.depth) + " " : ""}${escapeHtml(s.heading)}</div>
+            <div class="tt-grid">
+              <span>推定トークン:</span><strong>${s.tokens.toLocaleString()} tok</strong>
+              <span>目標予算比:</span><strong>${budgetPct}%</strong>
+              <span>内訳 (文/Code):</span><span>${s.proseTokens} / ${s.codeTokens} tok</span>
+              <span>状態:</span><strong style="color:${s.muted ? "var(--color-primary)" : "var(--color-on-surface)"}">${s.muted ? "ミュート中 (除外)" : "有効 (Active)"}</strong>
+            </div>
+            <div class="tt-hint">クリックで選択 · ダブルクリックでミュート切替</div>
+          `;
+        } else {
+          tooltip.style.display = "none";
+        }
+      });
+
+      canvas.addEventListener("mouseleave", () => {
+        hoveredRect = null;
+        tooltip.style.display = "none";
+        renderTreemap();
+      });
+
+      canvas.addEventListener("click", (e) => {
+        const hit = findHitRect(e.clientX, e.clientY);
+        if (!hit) return;
+        selectedSectionId = hit.section.id;
+        if (activeFileId !== hit.section.fileId) {
+          activeFileId = hit.section.fileId;
+          syncEditorWithActiveFile();
+        }
+        updateAllUI();
+      });
+
+      canvas.addEventListener("dblclick", (e) => {
+        const hit = findHitRect(e.clientX, e.clientY);
+        if (!hit) return;
+        toggleSectionMute(hit.section);
+        showToast(
+          hit.section.muted
+            ? `「${hit.section.heading}」のミュートを解除しました`
+            : `「${hit.section.heading}」をミュートしました (-${hit.section.tokens} tokens)`
+        );
+      });
+    }
+
+    // File Drag & Drop + File Input
+    function handleLoadedFiles(fileList) {
+      Array.from(fileList).forEach((file) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const content = String(reader.result || "");
+          const newId = "file-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+          files.push({
+            id: newId,
+            name: file.name,
+            muted: false,
+            mutedMap: {},
+            content
+          });
+          activeFileId = newId;
+          syncEditorWithActiveFile();
+          updateAllUI();
+          showToast(`${file.name} を読み込みました`);
+        };
+        reader.readAsText(file);
+      });
+    }
+
+    function loadSampleSet() {
+      files = SAMPLE_FILES.map((f) => ({
+        ...f,
+        mutedMap: {}
+      }));
+      activeFileId = files[0].id;
+      selectedSectionId = null;
+      syncEditorWithActiveFile();
+      updateAllUI();
+    }
+
+    // Wire UI Events
+    document.getElementById("budget-select").addEventListener("change", (e) => {
+      targetBudget = Number(e.target.value) || 8000;
+      updateAllUI();
+    });
+
+    document.getElementById("btn-load-sample").addEventListener("click", () => {
+      loadSampleSet();
+      showToast("サンプルデータ (AGENTS.md + SKILL.md 2件) を読み込みました");
+    });
+
+    document.getElementById("btn-upload-file").addEventListener("click", () => {
+      document.getElementById("file-input").click();
+    });
+
+    document.getElementById("file-input").addEventListener("change", (e) => {
+      if (e.target.files && e.target.files.length > 0) {
+        handleLoadedFiles(e.target.files);
+        e.target.value = "";
+      }
+    });
+
+    document.getElementById("btn-toggle-selected").addEventListener("click", () => {
+      const allSecs = files.flatMap((f) => f.sections);
+      const sec = allSecs.find((s) => s.id === selectedSectionId);
+      if (sec) toggleSectionMute(sec);
+    });
+
+    document.getElementById("btn-unmute-all").addEventListener("click", () => {
+      files.forEach((f) => {
+        f.muted = false;
+        f.mutedMap = {};
+      });
+      updateAllUI();
+      showToast("すべてのミュートを解除しました");
+    });
+
+    document.getElementById("btn-mute-code-heavy").addEventListener("click", () => {
+      // Find the top 2 largest sections or code-heavy legacy sections and mute them
+      const allSecs = files.flatMap((f) => f.sections).sort((a, b) => b.tokens - a.tokens);
+      if (allSecs.length === 0) return;
+      const topSec = allSecs[0];
+      const f = files.find((file) => file.id === topSec.fileId);
+      if (f) {
+        f.mutedMap[topSec.heading] = true;
+        selectedSectionId = topSec.id;
+        activeFileId = f.id;
+        syncEditorWithActiveFile();
+        updateAllUI();
+        showToast(`最大占有セクション「${topSec.heading}」(${topSec.tokens} tok) をミュート試算しました`);
+      }
+    });
+
+    document.getElementById("btn-copy-pruned").addEventListener("click", async () => {
+      const activeFile = files.find((f) => f.id === activeFileId) || files[0];
+      if (!activeFile) return;
+      const keptText = activeFile.sections
+        .filter((s) => !s.muted)
+        .map((s) => s.rawText)
+        .join("\n\n")
+        .trim();
+      try {
+        await navigator.clipboard.writeText(keptText);
+        showToast(`${activeFile.name} の剪定済み Markdown をクリップボードにコピーしました`);
+      } catch {
+        showToast("クリップボードへのコピーに失敗しました");
+      }
+    });
+
+    // Sub-tabs (Sections vs Live Editor)
+    const tabBtnSections = document.getElementById("tab-btn-sections");
+    const tabBtnEditor = document.getElementById("tab-btn-editor");
+    const sectionListEl = document.getElementById("section-list");
+    const editorPaneEl = document.getElementById("editor-pane");
+
+    tabBtnSections.addEventListener("click", () => {
+      tabBtnSections.classList.add("active");
+      tabBtnEditor.classList.remove("active");
+      sectionListEl.style.display = "block";
+      editorPaneEl.classList.remove("active");
+    });
+
+    tabBtnEditor.addEventListener("click", () => {
+      tabBtnEditor.classList.add("active");
+      tabBtnSections.classList.remove("active");
+      sectionListEl.style.display = "none";
+      editorPaneEl.classList.add("active");
+      syncEditorWithActiveFile();
+    });
+
+    document.getElementById("markdown-editor").addEventListener("input", (e) => {
+      const activeFile = files.find((f) => f.id === activeFileId);
+      if (!activeFile) return;
+      activeFile.content = e.target.value;
+      updateAllUI();
+    });
+
+    document.getElementById("btn-new-file").addEventListener("click", () => {
+      const idx = files.length + 1;
+      const newFile = {
+        id: "file-custom-" + Date.now(),
+        name: `custom-skill-${idx}.md`,
+        muted: false,
+        mutedMap: {},
+        content: `# Custom Skill ${idx}\n\n新しいスキルの説明をここに入力します。\n\n## コード例\n\n\`\`\`ts\nexport function runSkill() {\n  console.log("Hello Zen Lab");\n}\n\`\`\``
+      };
+      files.push(newFile);
+      activeFileId = newFile.id;
+      syncEditorWithActiveFile();
+      updateAllUI();
+      showToast(`${newFile.name} を追加しました`);
+    });
+
+    // Drag & drop support on window/canvas
+    const dropOverlay = document.getElementById("drop-overlay");
+    window.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      dropOverlay.classList.add("active");
+    });
+    window.addEventListener("dragleave", (e) => {
+      if (e.relatedTarget === null) {
+        dropOverlay.classList.remove("active");
+      }
+    });
+    window.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropOverlay.classList.remove("active");
+      if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+        handleLoadedFiles(e.dataTransfer.files);
+      }
+    });
+
+    // Responsive Canvas Resize
+    const ro = new ResizeObserver(() => renderTreemap());
+    ro.observe(document.getElementById("canvas-container"));
+
+    // Initialize
+    setupCanvasEvents();
+    loadSampleSet();
+  </script>
+</body>
+</html>

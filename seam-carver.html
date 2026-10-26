@@ -1,0 +1,1634 @@
+<!DOCTYPE html>
+<html lang="ja" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <title>Seam Carver — Zen Lab Tools</title>
+  <meta name="description" content="動的計画法（Dynamic Programming）によるコンテンツ認識型画像リサイズ（Seam Carving）のインタラクティブ実験・可視化ツール。エネルギーマップ・最小エネルギー経路・保護/優先削除マスクブラシをリアルタイムに体験できます。">
+  <style>
+    :root {
+      color-scheme: dark;
+      --color-primary: #e68a75;
+      --color-shu-red: #d64527;
+      --color-on-shu-red: #ffffff;
+      --color-background: #081617;
+      --color-on-surface: #f0f4f5;
+      --color-on-surface-variant: #9eb3b5;
+      --color-surface-container: #1b2f31;
+      --color-surface-container-low: #142527;
+      --color-surface-container-lowest: #0a1819;
+      --color-surface-container-high: #243c3e;
+      --color-ink-border: #334a4c;
+      --color-success: oklch(79.2% 0.209 151.711);
+      --focus-ring: 0 0 0 2px var(--color-background), 0 0 0 4px var(--color-shu-red);
+      --font-mincho: "Hiragino Mincho ProN", "YuMincho", "Yu Mincho", "Noto Serif CJK JP", serif;
+      --font-gothic: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "YuGothic", "Yu Gothic", "Noto Sans CJK JP", sans-serif;
+      --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      --radius-sm: 0.25rem;
+      --radius-md: 0.375rem;
+      --radius-lg: 0.5rem;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--color-background);
+      color: var(--color-on-surface);
+      font-family: var(--font-gothic);
+      line-height: 1.65;
+    }
+    .site-header {
+      border-bottom: 1px solid var(--color-ink-border);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: var(--font-mono);
+      font-size: 0.8125rem;
+    }
+    .site-header a {
+      color: var(--color-on-surface-variant);
+      text-decoration: none;
+    }
+    .site-header a:hover { color: var(--color-primary); }
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 28px 20px 64px;
+    }
+    h1 {
+      font-family: var(--font-mincho);
+      font-size: clamp(1.35rem, 1.1rem + 1vw, 2rem);
+      margin: 0 0 6px;
+      letter-spacing: 0.02em;
+    }
+    .subtitle {
+      color: var(--color-on-surface-variant);
+      font-size: 0.92rem;
+      margin: 0 0 22px;
+    }
+    .workspace {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+    }
+    .panel {
+      background: var(--color-surface-container-low);
+      border: 1px solid var(--color-ink-border);
+      border-radius: var(--radius-lg);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .section-title {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--color-primary);
+      margin: 0 0 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .control-group {
+      border-bottom: 1px solid var(--color-ink-border);
+      padding-bottom: 14px;
+    }
+    .control-group:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+    .btn-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    button, .file-btn {
+      font-family: var(--font-gothic);
+      font-size: 0.8125rem;
+      background: var(--color-surface-container);
+      color: var(--color-on-surface);
+      border: 1px solid var(--color-ink-border);
+      border-radius: var(--radius-sm);
+      padding: 6px 11px;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      text-decoration: none;
+      user-select: none;
+    }
+    button:hover:not(:disabled), .file-btn:hover {
+      background: var(--color-surface-container-high);
+      border-color: var(--color-primary);
+    }
+    button:focus-visible, .file-btn:focus-visible, input:focus-visible, select:focus-visible {
+      outline: none;
+      box-shadow: var(--focus-ring);
+    }
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    button.primary {
+      background: var(--color-shu-red);
+      color: var(--color-on-shu-red);
+      border-color: var(--color-shu-red);
+      font-weight: 600;
+    }
+    button.primary:hover:not(:disabled) {
+      filter: brightness(1.1);
+    }
+    button.active {
+      background: var(--color-surface-container-high);
+      border-color: var(--color-shu-red);
+      color: var(--color-primary);
+      box-shadow: inset 0 0 0 1px var(--color-shu-red);
+    }
+    button.protect-btn.active {
+      border-color: #2ecc71;
+      color: #6ee7b7;
+      box-shadow: inset 0 0 0 1px #2ecc71;
+    }
+    button.remove-btn.active {
+      border-color: var(--color-shu-red);
+      color: #fca5a5;
+      box-shadow: inset 0 0 0 1px var(--color-shu-red);
+    }
+    .slider-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 10px;
+    }
+    .slider-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.8125rem;
+      color: var(--color-on-surface-variant);
+    }
+    .slider-label strong {
+      font-family: var(--font-mono);
+      color: var(--color-on-surface);
+    }
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--color-shu-red);
+      cursor: pointer;
+    }
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.82rem;
+      color: var(--color-on-surface);
+      cursor: pointer;
+      margin-top: 6px;
+    }
+    .checkbox-row input {
+      accent-color: var(--color-shu-red);
+      width: 15px;
+      height: 15px;
+      cursor: pointer;
+    }
+    .stage-panel {
+      background: var(--color-surface-container-lowest);
+      border: 1px solid var(--color-ink-border);
+      border-radius: var(--radius-lg);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .stage-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--color-ink-border);
+    }
+    .metrics-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--color-on-surface-variant);
+    }
+    .metrics-bar span strong {
+      color: var(--color-on-surface);
+    }
+    .canvas-viewport {
+      position: relative;
+      min-height: 360px;
+      background:
+        linear-gradient(45deg, #0d1f21 25%, transparent 25%),
+        linear-gradient(-45deg, #0d1f21 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #0d1f21 75%),
+        linear-gradient(-45deg, transparent 75%, #0d1f21 75%);
+      background-size: 20px 20px;
+      background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+      background-color: #081415;
+      border: 1px solid var(--color-ink-border);
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      overflow: auto;
+    }
+    .canvas-viewport.dragover {
+      border-color: var(--color-shu-red);
+      box-shadow: inset 0 0 0 2px var(--color-shu-red);
+    }
+    .canvas-stack {
+      position: relative;
+      display: inline-block;
+      line-height: 0;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+      border: 1px solid var(--color-ink-border);
+    }
+    canvas {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      image-rendering: pixelated;
+    }
+    #overlayCanvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+    }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      font-size: 0.78rem;
+      color: var(--color-on-surface-variant);
+      align-items: center;
+      justify-content: space-between;
+    }
+    .legend-items {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      align-items: center;
+    }
+    .dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-right: 5px;
+      vertical-align: middle;
+    }
+    .dot-seam { background: var(--color-shu-red); }
+    .dot-protect { background: #2ecc71; }
+    .dot-remove { background: #ff4757; }
+    .formula-box {
+      background: var(--color-surface-container-low);
+      border: 1px solid var(--color-ink-border);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+      font-size: 0.8125rem;
+      color: var(--color-on-surface-variant);
+    }
+    .formula-box code {
+      font-family: var(--font-mono);
+      color: var(--color-primary);
+      background: var(--color-surface-container-lowest);
+      padding: 2px 5px;
+      border-radius: var(--radius-sm);
+    }
+    .toast {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--color-success);
+      min-height: 1.2em;
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <a href="./">← tools.zen-lab.dev</a>
+    <a href="./colophon.html#seam-carver.html">Docs &amp; History</a>
+  </header>
+  <main>
+    <h1>Seam Carver — コンテンツ認識型画像リサイズ</h1>
+    <p class="subtitle">
+      動的計画法（Dynamic Programming）で画像内の「エネルギーが最も低い1ピクセル幅の経路（シーム）」を探索・除去し、被写体を歪めずに背景だけを圧縮・消去します。
+    </p>
+
+    <div class="workspace">
+      <!-- 左パネル：コントロール -->
+      <aside class="panel" aria-label="操作パネル">
+        <div class="control-group">
+          <div class="section-title">
+            <span>1. サンプルシーン / 画像入力</span>
+          </div>
+          <div class="btn-row" style="margin-bottom: 8px;">
+            <button type="button" id="presetToriiBtn" class="active">朱鳥居と満月</button>
+            <button type="button" id="presetGardenBtn">枯山水と石灯籠</button>
+            <button type="button" id="presetGeoBtn">幾何学プリズム</button>
+          </div>
+          <div class="btn-row">
+            <label class="file-btn" for="fileInput">
+              画像を読み込む
+              <input type="file" id="fileInput" accept="image/*" hidden>
+            </label>
+            <button type="button" id="resetBtn">初期状態に戻す</button>
+          </div>
+          <div style="font-size: 0.75rem; color: var(--color-on-surface-variant); margin-top: 6px;">
+            ※ 画像のドラッグ＆ドロップ、または <code>Cmd+V</code> / <code>Ctrl+V</code> ペーストにも対応
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="section-title">
+            <span>2. リサイズ &amp; シーム削除</span>
+            <span id="directionBadge" style="color: var(--color-on-surface-variant);">縦シーム(幅縮小)</span>
+          </div>
+
+          <div class="btn-row" style="margin-bottom: 10px;">
+            <button type="button" id="dirVerticalBtn" class="active">縦シーム（横幅を縮小）</button>
+            <button type="button" id="dirHorizontalBtn">横シーム（高さを縮小）</button>
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-label">
+              <span id="targetSliderLabel">目標の横幅 (Target Width)</span>
+              <strong><span id="targetSizeLabel">360</span> px (<span id="targetPctLabel">100</span>%)</strong>
+            </div>
+            <input type="range" id="targetSizeSlider" min="120" max="360" value="360" step="1">
+          </div>
+
+          <div class="btn-row">
+            <button type="button" id="playPauseBtn" class="primary">▶ 1本ずつアニメーション削除</button>
+            <button type="button" id="stepOnceBtn">1本削る (-1px)</button>
+          </div>
+          <div class="btn-row" style="margin-top: 6px;">
+            <button type="button" id="carve20Btn">-25本 一括削除</button>
+            <button type="button" id="removeObjectBtn">赤マスク領域を自動消去</button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="section-title">
+            <span>3. 保護 / 優先削除マスクブラシ</span>
+          </div>
+          <div class="btn-row" style="margin-bottom: 8px;">
+            <button type="button" id="brushProtectBtn" class="protect-btn active" data-brush="protect">緑: 保護ブラシ (+E)</button>
+            <button type="button" id="brushRemoveBtn" class="remove-btn" data-brush="remove">赤: 優先削除 (-E)</button>
+            <button type="button" id="brushEraseBtn" data-brush="erase">消しゴム</button>
+          </div>
+          <div class="slider-row">
+            <div class="slider-label">
+              <span>ブラシサイズ</span>
+              <strong><span id="brushSizeVal">18</span> px</strong>
+            </div>
+            <input type="range" id="brushSizeSlider" min="4" max="44" value="18">
+          </div>
+          <div class="btn-row">
+            <button type="button" id="demoMaskBtn">サンプルマスク（舟を消去＆鳥居を保護）</button>
+            <button type="button" id="clearMaskBtn">マスク消去</button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="section-title">
+            <span>4. 可視化レイヤー &amp; 出力</span>
+          </div>
+          <div class="btn-row" style="margin-bottom: 8px;">
+            <button type="button" class="view-mode-btn active" data-view="carved">通常表示</button>
+            <button type="button" class="view-mode-btn" data-view="energy">エネルギー勾配</button>
+            <button type="button" class="view-mode-btn" data-view="dp">DP累積コスト M</button>
+          </div>
+          <label class="checkbox-row">
+            <input type="checkbox" id="showSeamToggle" checked>
+            <span>最小エネルギー経路（朱色シーム <code>#d64527</code>）を表示</span>
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" id="showMaskToggle" checked>
+            <span>保護（緑）/ 優先削除（赤）マスクを重ねて表示</span>
+          </label>
+          <div class="btn-row" style="margin-top: 12px;">
+            <button type="button" id="downloadBtn">PNGを保存</button>
+            <button type="button" id="copyBtn">クリップボードにコピー</button>
+          </div>
+          <div id="statusToast" class="toast" aria-live="polite"></div>
+        </div>
+      </aside>
+
+      <!-- 右パネル：キャンバスとメトリクス -->
+      <section class="stage-panel" aria-label="プレビューと可視化">
+        <div class="stage-toolbar">
+          <div class="metrics-bar">
+            <span>元サイズ: <strong id="origDimText">360 × 240</strong></span>
+            <span>現在サイズ: <strong id="currDimText">360 × 240</strong></span>
+            <span>削除シーム数: <strong id="removedCountText">0</strong> 本</span>
+            <span>最小シームコスト: <strong id="seamCostText">—</strong></span>
+            <span>DP計算: <strong id="calcTimeText">—</strong></span>
+          </div>
+        </div>
+
+        <div class="canvas-viewport" id="dropZone">
+          <div class="canvas-stack" id="canvasStack">
+            <canvas id="mainCanvas" width="360" height="240"></canvas>
+            <canvas id="overlayCanvas" width="360" height="240"></canvas>
+          </div>
+        </div>
+
+        <div class="legend">
+          <div class="legend-items">
+            <span><i class="dot dot-seam"></i>次回削除される最小エネルギーシーム</span>
+            <span><i class="dot dot-protect"></i>保護マスク（エネルギー +10,000）</span>
+            <span><i class="dot dot-remove"></i>優先削除マスク（エネルギー -10,000）</span>
+          </div>
+          <span>キャンバス上をドラッグして直接マスクを描画できます</span>
+        </div>
+
+        <div class="formula-box">
+          <strong>アルゴリズム（動的計画法によるシーム探索）:</strong>
+          各画素のSobel勾配エネルギー <code>e(x, y) = |∂I/∂x| + |∂I/∂y| + mask(x, y)</code> を算出し、上から下へ漸化式
+          <code>M(x, y) = e(x, y) + min(M(x-1, y-1), M(x, y-1), M(x+1, y-1))</code>
+          で累積最小コスト表を構築。最下段の最小値からバックトラックして1本の連結経路（Seam）を特定・除去します。
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    (() => {
+      const mainCanvas = document.getElementById("mainCanvas");
+      const mainCtx = mainCanvas.getContext("2d", { willReadFrequently: true });
+      const overlayCanvas = document.getElementById("overlayCanvas");
+      const overlayCtx = overlayCanvas.getContext("2d");
+
+      // UI Elements
+      const presetToriiBtn = document.getElementById("presetToriiBtn");
+      const presetGardenBtn = document.getElementById("presetGardenBtn");
+      const presetGeoBtn = document.getElementById("presetGeoBtn");
+      const fileInput = document.getElementById("fileInput");
+      const resetBtn = document.getElementById("resetBtn");
+
+      const dirVerticalBtn = document.getElementById("dirVerticalBtn");
+      const dirHorizontalBtn = document.getElementById("dirHorizontalBtn");
+      const directionBadge = document.getElementById("directionBadge");
+      const targetSliderLabel = document.getElementById("targetSliderLabel");
+      const targetSizeLabel = document.getElementById("targetSizeLabel");
+      const targetPctLabel = document.getElementById("targetPctLabel");
+      const targetSizeSlider = document.getElementById("targetSizeSlider");
+
+      const playPauseBtn = document.getElementById("playPauseBtn");
+      const stepOnceBtn = document.getElementById("stepOnceBtn");
+      const carve20Btn = document.getElementById("carve20Btn");
+      const removeObjectBtn = document.getElementById("removeObjectBtn");
+
+      const brushProtectBtn = document.getElementById("brushProtectBtn");
+      const brushRemoveBtn = document.getElementById("brushRemoveBtn");
+      const brushEraseBtn = document.getElementById("brushEraseBtn");
+      const brushSizeSlider = document.getElementById("brushSizeSlider");
+      const brushSizeVal = document.getElementById("brushSizeVal");
+      const demoMaskBtn = document.getElementById("demoMaskBtn");
+      const clearMaskBtn = document.getElementById("clearMaskBtn");
+
+      const viewModeBtns = document.querySelectorAll(".view-mode-btn");
+      const showSeamToggle = document.getElementById("showSeamToggle");
+      const showMaskToggle = document.getElementById("showMaskToggle");
+      const downloadBtn = document.getElementById("downloadBtn");
+      const copyBtn = document.getElementById("copyBtn");
+      const statusToast = document.getElementById("statusToast");
+      const dropZone = document.getElementById("dropZone");
+
+      const origDimText = document.getElementById("origDimText");
+      const currDimText = document.getElementById("currDimText");
+      const removedCountText = document.getElementById("removedCountText");
+      const seamCostText = document.getElementById("seamCostText");
+      const calcTimeText = document.getElementById("calcTimeText");
+
+      // State
+      let currentPreset = "torii";
+      let origWidth = 360;
+      let origHeight = 240;
+      let currWidth = 360;
+      let currHeight = 240;
+      let origPixels = null; // Uint8ClampedArray (origWidth * origHeight * 4)
+      let currPixels = null; // Uint8ClampedArray (currWidth * currHeight * 4)
+      // mask array: 0 = neutral, 1 = protect (+energy), -1 = remove (-energy)
+      let currMask = null;   // Int8Array (currWidth * currHeight)
+
+      // History snapshots for instant slider scrubbing backwards
+      // Each entry: { width, height, pixels: Uint8ClampedArray, mask: Int8Array }
+      let history = [];
+
+      let seamDirection = "vertical"; // "vertical" (reduces width) or "horizontal" (reduces height)
+      let viewMode = "carved";        // "carved" | "energy" | "dp"
+      let brushMode = "protect";      // "protect" | "remove" | "erase"
+      let brushRadius = 18;
+
+      let lastEnergy = null; // Float32Array
+      let lastDp = null;     // Float32Array
+      let nextSeam = null;   // Int32Array of length currHeight (if vertical) or currWidth (if horizontal)
+      let lastSeamCost = 0;
+      let lastCalcMs = 0;
+
+      let isAnimating = false;
+      let animFrameId = null;
+
+      function showToast(msg) {
+        statusToast.textContent = msg;
+        clearTimeout(showToast._timer);
+        showToast._timer = setTimeout(() => {
+          statusToast.textContent = "";
+        }, 2800);
+      }
+
+      // -----------------------------------------------------------------------
+      // 1. Procedural Scene Generators
+      // -----------------------------------------------------------------------
+      function generatePresetScene(type) {
+        const w = 360;
+        const h = 240;
+        const off = document.createElement("canvas");
+        off.width = w;
+        off.height = h;
+        const ctx = off.getContext("2d");
+
+        if (type === "torii") {
+          // Twilight sky gradient (smooth low-energy regions between subjects)
+          const skyGrad = ctx.createLinearGradient(0, 0, 0, h * 0.66);
+          skyGrad.addColorStop(0, "#0b1a22");
+          skyGrad.addColorStop(0.55, "#193038");
+          skyGrad.addColorStop(1, "#3d4240");
+          ctx.fillStyle = skyGrad;
+          ctx.fillRect(0, 0, w, h * 0.66);
+
+          // Calm water reflection gradient
+          const waterGrad = ctx.createLinearGradient(0, h * 0.66, 0, h);
+          waterGrad.addColorStop(0, "#243538");
+          waterGrad.addColorStop(0.5, "#132326");
+          waterGrad.addColorStop(1, "#091315");
+          ctx.fillStyle = waterGrad;
+          ctx.fillRect(0, h * 0.66, w, h * 0.34);
+
+          // Distant low-energy mountain silhouette
+          ctx.fillStyle = "#162629";
+          ctx.beginPath();
+          ctx.moveTo(0, h * 0.66);
+          for (let x = 0; x <= w; x += 12) {
+            const y = h * 0.66 - 18 - Math.sin(x * 0.024) * 10 - Math.cos(x * 0.011) * 8;
+            ctx.lineTo(x, y);
+          }
+          ctx.lineTo(w, h * 0.66);
+          ctx.closePath();
+          ctx.fill();
+
+          // Full Moon (high-energy circle on upper center-right)
+          const moonX = 215;
+          const moonY = 58;
+          ctx.save();
+          ctx.fillStyle = "#f7ebd2";
+          ctx.beginPath();
+          ctx.arc(moonX, moonY, 24, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = "#e68a75";
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+          // Craters / texture inside moon for strong gradient
+          ctx.fillStyle = "#e2cfa9";
+          ctx.beginPath();
+          ctx.arc(moonX - 7, moonY - 4, 5, 0, Math.PI * 2);
+          ctx.arc(moonX + 8, moonY + 6, 4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+
+          // Red Torii Gate on the left (high energy edges)
+          drawTorii(ctx, 88, 168);
+
+          // Small wooden boat in the middle water (great candidate for removal or preservation)
+          drawBoat(ctx, 198, 194);
+
+          // Five-story Pagoda silhouette on the right bank
+          drawPagoda(ctx, 304, 158);
+        } else if (type === "garden") {
+          // Zen Karesansui sand waves (low horizontal gradient, distinct stones)
+          const bg = ctx.createLinearGradient(0, 0, 0, h);
+          bg.addColorStop(0, "#152527");
+          bg.addColorStop(1, "#0e1b1d");
+          ctx.fillStyle = bg;
+          ctx.fillRect(0, 0, w, h);
+
+          // Subtle horizontal raked lines
+          ctx.strokeStyle = "rgba(158, 179, 181, 0.12)";
+          ctx.lineWidth = 1;
+          for (let y = 16; y < h; y += 8) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(w, y);
+            ctx.stroke();
+          }
+
+          // 3 distinct moss & rock islands
+          drawRockIsland(ctx, 78, 128, 36, 24);
+          drawRockIsland(ctx, 185, 164, 26, 18);
+          drawLantern(ctx, 286, 118);
+        } else {
+          // Geometric Prisms
+          const g = ctx.createLinearGradient(0, 0, w, h);
+          g.addColorStop(0, "#0b1a1c");
+          g.addColorStop(0.5, "#152b2e");
+          g.addColorStop(1, "#0b191b");
+          ctx.fillStyle = g;
+          ctx.fillRect(0, 0, w, h);
+
+          // 3 crisp polyhedra with internal grid patterns
+          drawPrism(ctx, 76, 120, 38, "#d64527", "#f0f4f5");
+          drawPrism(ctx, 182, 86, 30, "#2ecc71", "#f0f4f5");
+          drawPrism(ctx, 286, 142, 40, "#e68a75", "#f0f4f5");
+        }
+
+        const imgData = ctx.getImageData(0, 0, w, h);
+        loadFromImageData(imgData);
+      }
+
+      function drawTorii(ctx, cx, baseY) {
+        ctx.save();
+        ctx.fillStyle = "#d64527";
+        ctx.strokeStyle = "#2b0d07";
+        ctx.lineWidth = 1.5;
+
+        // Pillars
+        ctx.fillRect(cx - 26, baseY - 72, 9, 72);
+        ctx.strokeRect(cx - 26, baseY - 72, 9, 72);
+        ctx.fillRect(cx + 17, baseY - 72, 9, 72);
+        ctx.strokeRect(cx + 17, baseY - 72, 9, 72);
+
+        // Top Kasagi beam
+        ctx.beginPath();
+        ctx.moveTo(cx - 44, baseY - 78);
+        ctx.quadraticCurveTo(cx, baseY - 72, cx + 44, baseY - 78);
+        ctx.lineTo(cx + 40, baseY - 68);
+        ctx.lineTo(cx - 40, baseY - 68);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Lower Nuki beam
+        ctx.fillRect(cx - 34, baseY - 56, 68, 7);
+        ctx.strokeRect(cx - 34, baseY - 56, 68, 7);
+
+        // Center Gakuzuka plaque
+        ctx.fillStyle = "#142527";
+        ctx.fillRect(cx - 6, baseY - 69, 12, 14);
+        ctx.strokeStyle = "#f7ebd2";
+        ctx.strokeRect(cx - 6, baseY - 69, 12, 14);
+
+        // Reflection ripples under Torii
+        ctx.fillStyle = "rgba(214, 69, 39, 0.45)";
+        for (let i = 1; i <= 5; i++) {
+          ctx.fillRect(cx - 26 + (i % 2) * 3, baseY + i * 5, 9, 2);
+          ctx.fillRect(cx + 17 - (i % 2) * 3, baseY + i * 5, 9, 2);
+        }
+        ctx.restore();
+      }
+
+      function drawBoat(ctx, cx, cy) {
+        ctx.save();
+        // Hull
+        ctx.fillStyle = "#e68a75";
+        ctx.strokeStyle = "#081617";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(cx - 22, cy);
+        ctx.lineTo(cx + 22, cy);
+        ctx.lineTo(cx + 15, cy + 9);
+        ctx.lineTo(cx - 15, cy + 9);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Warm glowing lantern on boat bow
+        ctx.fillStyle = "#ffdf7a";
+        ctx.beginPath();
+        ctx.arc(cx + 12, cy - 6, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      function drawPagoda(ctx, cx, baseY) {
+        ctx.save();
+        ctx.fillStyle = "#0d1719";
+        ctx.strokeStyle = "#e68a75";
+        ctx.lineWidth = 1.2;
+        const levels = 4;
+        for (let i = 0; i < levels; i++) {
+          const w = 44 - i * 6;
+          const y = baseY - i * 19;
+          ctx.fillRect(cx - w * 0.35, y - 14, w * 0.7, 14);
+          ctx.strokeRect(cx - w * 0.35, y - 14, w * 0.7, 14);
+          // Roof eaves
+          ctx.beginPath();
+          ctx.moveTo(cx - w * 0.62, y - 13);
+          ctx.lineTo(cx + w * 0.62, y - 13);
+          ctx.lineTo(cx + w * 0.42, y - 19);
+          ctx.lineTo(cx - w * 0.42, y - 19);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+        // Spire
+        ctx.beginPath();
+        ctx.moveTo(cx, baseY - levels * 19 - 18);
+        ctx.lineTo(cx, baseY - levels * 19);
+        ctx.stroke();
+
+        // Lit window
+        ctx.fillStyle = "#f9c762";
+        ctx.fillRect(cx - 4, baseY - 11, 8, 7);
+        ctx.restore();
+      }
+
+      function drawRockIsland(ctx, cx, cy, rx, ry) {
+        ctx.save();
+        // Concentric sand rings around rock
+        ctx.strokeStyle = "rgba(230, 138, 117, 0.35)";
+        ctx.lineWidth = 1.4;
+        for (let r = 6; r <= 14; r += 4) {
+          ctx.beginPath();
+          ctx.ellipse(cx, cy + 4, rx + r, ry * 0.65 + r * 0.5, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        // Moss base
+        ctx.fillStyle = "#2d5a43";
+        ctx.beginPath();
+        ctx.ellipse(cx, cy + 4, rx, ry * 0.6, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // Craggy stone
+        ctx.fillStyle = "#7a8d8f";
+        ctx.strokeStyle = "#f0f4f5";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(cx - rx * 0.8, cy + 4);
+        ctx.lineTo(cx - rx * 0.45, cy - ry);
+        ctx.lineTo(cx + rx * 0.2, cy - ry * 0.85);
+        ctx.lineTo(cx + rx * 0.75, cy + 4);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      function drawLantern(ctx, cx, cy) {
+        ctx.save();
+        ctx.fillStyle = "#8d9fa1";
+        ctx.strokeStyle = "#f0f4f5";
+        ctx.lineWidth = 1.4;
+        // Pedestal
+        ctx.fillRect(cx - 12, cy + 16, 24, 8);
+        ctx.strokeRect(cx - 12, cy + 16, 24, 8);
+        ctx.fillRect(cx - 7, cy - 8, 14, 24);
+        ctx.strokeRect(cx - 7, cy - 8, 14, 24);
+        // Fire box
+        ctx.fillStyle = "#ffcf66";
+        ctx.fillRect(cx - 10, cy - 22, 20, 14);
+        ctx.strokeRect(cx - 10, cy - 22, 20, 14);
+        // Roof
+        ctx.fillStyle = "#627577";
+        ctx.beginPath();
+        ctx.moveTo(cx - 22, cy - 22);
+        ctx.lineTo(cx + 22, cy - 22);
+        ctx.lineTo(cx, cy - 38);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      function drawPrism(ctx, cx, cy, r, fill, stroke) {
+        ctx.save();
+        ctx.fillStyle = fill;
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const ang = (Math.PI / 3) * i - Math.PI / 6;
+          const x = cx + Math.cos(ang) * r;
+          const y = cy + Math.sin(ang) * r;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Inner facets for strong Sobel edges
+        ctx.beginPath();
+        for (let i = 0; i < 6; i += 2) {
+          const ang = (Math.PI / 3) * i - Math.PI / 6;
+          ctx.moveTo(cx, cy);
+          ctx.lineTo(cx + Math.cos(ang) * r, cy + Math.sin(ang) * r);
+        }
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // -----------------------------------------------------------------------
+      // 2. Image Loading & State Initialization
+      // -----------------------------------------------------------------------
+      function loadFromImageData(imgData) {
+        stopAnimation();
+        origWidth = imgData.width;
+        origHeight = imgData.height;
+        currWidth = origWidth;
+        currHeight = origHeight;
+        origPixels = new Uint8ClampedArray(imgData.data);
+        currPixels = new Uint8ClampedArray(imgData.data);
+        currMask = new Int8Array(currWidth * currHeight);
+
+        history = [{
+          width: currWidth,
+          height: currHeight,
+          pixels: new Uint8ClampedArray(currPixels),
+          mask: new Int8Array(currMask)
+        }];
+
+        syncSliderRange();
+        recomputeAndRender();
+      }
+
+      function syncSliderRange() {
+        if (seamDirection === "vertical") {
+          targetSliderLabel.textContent = "目標の横幅 (Target Width)";
+          directionBadge.textContent = "縦シーム(幅縮小)";
+          const minW = Math.max(40, Math.floor(origWidth * 0.35));
+          targetSizeSlider.min = String(minW);
+          targetSizeSlider.max = String(origWidth);
+          targetSizeSlider.value = String(currWidth);
+          targetSizeLabel.textContent = String(currWidth);
+          targetPctLabel.textContent = String(Math.round((currWidth / origWidth) * 100));
+        } else {
+          targetSliderLabel.textContent = "目標の高さ (Target Height)";
+          directionBadge.textContent = "横シーム(高さ縮小)";
+          const minH = Math.max(40, Math.floor(origHeight * 0.35));
+          targetSizeSlider.min = String(minH);
+          targetSizeSlider.max = String(origHeight);
+          targetSizeSlider.value = String(currHeight);
+          targetSizeLabel.textContent = String(currHeight);
+          targetPctLabel.textContent = String(Math.round((currHeight / origHeight) * 100));
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // 3. Sobel Energy & Dynamic Programming Seam Finder
+      // -----------------------------------------------------------------------
+      function computeEnergyAndSeam() {
+        const t0 = performance.now();
+        const w = currWidth;
+        const h = currHeight;
+        const px = currPixels;
+        const mask = currMask;
+
+        // Convert to luminance for fast and accurate Sobel gradient
+        const lum = new Float32Array(w * h);
+        for (let i = 0, p = 0; i < w * h; i++, p += 4) {
+          lum[i] = 0.299 * px[p] + 0.587 * px[p + 1] + 0.114 * px[p + 2];
+        }
+
+        const energy = new Float32Array(w * h);
+        const PROTECT_WEIGHT = 12000;
+        const REMOVE_WEIGHT = -12000;
+
+        for (let y = 0; y < h; y++) {
+          const ym = y > 0 ? y - 1 : 0;
+          const yp = y < h - 1 ? y + 1 : h - 1;
+          for (let x = 0; x < w; x++) {
+            const xm = x > 0 ? x - 1 : 0;
+            const xp = x < w - 1 ? x + 1 : w - 1;
+
+            // Sobel X and Y
+            const tl = lum[ym * w + xm];
+            const tc = lum[ym * w + x];
+            const tr = lum[ym * w + xp];
+            const ml = lum[y * w + xm];
+            const mr = lum[y * w + xp];
+            const bl = lum[yp * w + xm];
+            const bc = lum[yp * w + x];
+            const br = lum[yp * w + xp];
+
+            const gx = -tl + tr - 2 * ml + 2 * mr - bl + br;
+            const gy = -tl - 2 * tc - tr + bl + 2 * bc + br;
+            let e = Math.abs(gx) + Math.abs(gy);
+
+            const m = mask[y * w + x];
+            if (m === 1) e += PROTECT_WEIGHT;
+            else if (m === -1) e += REMOVE_WEIGHT;
+
+            energy[y * w + x] = e;
+          }
+        }
+
+        const dp = new Float32Array(w * h);
+        const backtrack = new Int32Array(w * h);
+
+        if (seamDirection === "vertical") {
+          // Initialize top row
+          for (let x = 0; x < w; x++) {
+            dp[x] = energy[x];
+            backtrack[x] = x;
+          }
+          // Forward DP top-to-bottom
+          for (let y = 1; y < h; y++) {
+            const rowOff = y * w;
+            const prevOff = (y - 1) * w;
+            for (let x = 0; x < w; x++) {
+              let bestX = x;
+              let minVal = dp[prevOff + x];
+              if (x > 0 && dp[prevOff + x - 1] < minVal) {
+                minVal = dp[prevOff + x - 1];
+                bestX = x - 1;
+              }
+              if (x < w - 1 && dp[prevOff + x + 1] < minVal) {
+                minVal = dp[prevOff + x + 1];
+                bestX = x + 1;
+              }
+              dp[rowOff + x] = energy[rowOff + x] + minVal;
+              backtrack[rowOff + x] = bestX;
+            }
+          }
+          // Find minimum on bottom row
+          const lastRow = (h - 1) * w;
+          let minEndX = 0;
+          let minCost = dp[lastRow];
+          for (let x = 1; x < w; x++) {
+            if (dp[lastRow + x] < minCost) {
+              minCost = dp[lastRow + x];
+              minEndX = x;
+            }
+          }
+          const seam = new Int32Array(h);
+          let currX = minEndX;
+          for (let y = h - 1; y >= 0; y--) {
+            seam[y] = currX;
+            currX = backtrack[y * w + currX];
+          }
+          lastSeamCost = minCost;
+          nextSeam = seam;
+        } else {
+          // Horizontal seam: left-to-right DP
+          for (let y = 0; y < h; y++) {
+            dp[y * w] = energy[y * w];
+            backtrack[y * w] = y;
+          }
+          for (let x = 1; x < w; x++) {
+            for (let y = 0; y < h; y++) {
+              let bestY = y;
+              let minVal = dp[y * w + (x - 1)];
+              if (y > 0 && dp[(y - 1) * w + (x - 1)] < minVal) {
+                minVal = dp[(y - 1) * w + (x - 1)];
+                bestY = y - 1;
+              }
+              if (y < h - 1 && dp[(y + 1) * w + (x - 1)] < minVal) {
+                minVal = dp[(y + 1) * w + (x - 1)];
+                bestY = y + 1;
+              }
+              dp[y * w + x] = energy[y * w + x] + minVal;
+              backtrack[y * w + x] = bestY;
+            }
+          }
+          let minEndY = 0;
+          let minCost = dp[w - 1];
+          for (let y = 1; y < h; y++) {
+            if (dp[y * w + (w - 1)] < minCost) {
+              minCost = dp[y * w + (w - 1)];
+              minEndY = y;
+            }
+          }
+          const seam = new Int32Array(w);
+          let currY = minEndY;
+          for (let x = w - 1; x >= 0; x--) {
+            seam[x] = currY;
+            currY = backtrack[currY * w + x];
+          }
+          lastSeamCost = minCost;
+          nextSeam = seam;
+        }
+
+        lastEnergy = energy;
+        lastDp = dp;
+        lastCalcMs = performance.now() - t0;
+      }
+
+      function removeOneSeam(saveToHistory = true) {
+        if (seamDirection === "vertical") {
+          if (currWidth <= 40) return false;
+          if (!nextSeam || nextSeam.length !== currHeight) {
+            computeEnergyAndSeam();
+          }
+          const newW = currWidth - 1;
+          const newPx = new Uint8ClampedArray(newW * currHeight * 4);
+          const newMask = new Int8Array(newW * currHeight);
+
+          for (let y = 0; y < currHeight; y++) {
+            const seamX = nextSeam[y];
+            let dstX = 0;
+            for (let x = 0; x < currWidth; x++) {
+              if (x === seamX) continue;
+              const srcIdx = (y * currWidth + x) * 4;
+              const dstIdx = (y * newW + dstX) * 4;
+              newPx[dstIdx] = currPixels[srcIdx];
+              newPx[dstIdx + 1] = currPixels[srcIdx + 1];
+              newPx[dstIdx + 2] = currPixels[srcIdx + 2];
+              newPx[dstIdx + 3] = currPixels[srcIdx + 3];
+              newMask[y * newW + dstX] = currMask[y * currWidth + x];
+              dstX++;
+            }
+          }
+          currWidth = newW;
+          currPixels = newPx;
+          currMask = newMask;
+        } else {
+          if (currHeight <= 40) return false;
+          if (!nextSeam || nextSeam.length !== currWidth) {
+            computeEnergyAndSeam();
+          }
+          const newH = currHeight - 1;
+          const newPx = new Uint8ClampedArray(currWidth * newH * 4);
+          const newMask = new Int8Array(currWidth * newH);
+
+          for (let x = 0; x < currWidth; x++) {
+            const seamY = nextSeam[x];
+            let dstY = 0;
+            for (let y = 0; y < currHeight; y++) {
+              if (y === seamY) continue;
+              const srcIdx = (y * currWidth + x) * 4;
+              const dstIdx = (dstY * currWidth + x) * 4;
+              newPx[dstIdx] = currPixels[srcIdx];
+              newPx[dstIdx + 1] = currPixels[srcIdx + 1];
+              newPx[dstIdx + 2] = currPixels[srcIdx + 2];
+              newPx[dstIdx + 3] = currPixels[srcIdx + 3];
+              newMask[dstY * currWidth + x] = currMask[y * currWidth + x];
+              dstY++;
+            }
+          }
+          currHeight = newH;
+          currPixels = newPx;
+          currMask = newMask;
+        }
+
+        if (saveToHistory) {
+          history.push({
+            width: currWidth,
+            height: currHeight,
+            pixels: new Uint8ClampedArray(currPixels),
+            mask: new Int8Array(currMask)
+          });
+        }
+        return true;
+      }
+
+      // -----------------------------------------------------------------------
+      // 4. Rendering (Main Canvas + Seam / Mask Overlay Canvas)
+      // -----------------------------------------------------------------------
+      function recomputeAndRender() {
+        computeEnergyAndSeam();
+        renderCanvases();
+        updateMetricsUI();
+      }
+
+      function renderCanvases() {
+        const w = currWidth;
+        const h = currHeight;
+        if (mainCanvas.width !== w || mainCanvas.height !== h) {
+          mainCanvas.width = w;
+          mainCanvas.height = h;
+          overlayCanvas.width = w;
+          overlayCanvas.height = h;
+        }
+
+        const outImg = mainCtx.createImageData(w, h);
+        const out = outImg.data;
+
+        if (viewMode === "carved") {
+          out.set(currPixels);
+        } else if (viewMode === "energy") {
+          // Normalize positive gradient energy for heatmap visualization
+          let maxE = 1;
+          for (let i = 0; i < w * h; i++) {
+            const v = lastEnergy[i];
+            if (v < 9000 && v > maxE) maxE = v;
+          }
+          for (let i = 0, p = 0; i < w * h; i++, p += 4) {
+            const m = currMask[i];
+            if (m === 1) {
+              out[p] = 30;
+              out[p + 1] = 200;
+              out[p + 2] = 110;
+              out[p + 3] = 255;
+            } else if (m === -1) {
+              out[p] = 214;
+              out[p + 1] = 69;
+              out[p + 2] = 39;
+              out[p + 3] = 255;
+            } else {
+              const t = Math.min(1, Math.max(0, lastEnergy[i] / maxE));
+              // Zen Lab dark teal to warm shu-red / gold heatmap
+              out[p] = Math.round(12 + 230 * Math.pow(t, 0.85));
+              out[p + 1] = Math.round(28 + 150 * Math.pow(t, 1.3));
+              out[p + 2] = Math.round(34 + 90 * (1 - t));
+              out[p + 3] = 255;
+            }
+          }
+        } else if (viewMode === "dp") {
+          let minD = Infinity;
+          let maxD = -Infinity;
+          for (let i = 0; i < w * h; i++) {
+            const v = lastDp[i];
+            if (v < minD) minD = v;
+            if (v > maxD) maxD = v;
+          }
+          const span = Math.max(1, maxD - minD);
+          for (let i = 0, p = 0; i < w * h; i++, p += 4) {
+            const t = (lastDp[i] - minD) / span;
+            out[p] = Math.round(16 + 218 * t);
+            out[p + 1] = Math.round(35 + 105 * (1 - Math.abs(t - 0.5) * 2));
+            out[p + 2] = Math.round(45 + 165 * (1 - t));
+            out[p + 3] = 255;
+          }
+        }
+
+        mainCtx.putImageData(outImg, 0, 0);
+
+        // Render Overlay (Mask + Next Seam path)
+        overlayCtx.clearRect(0, 0, w, h);
+        const ovImg = overlayCtx.createImageData(w, h);
+        const ov = ovImg.data;
+
+        if (showMaskToggle.checked && viewMode === "carved") {
+          for (let i = 0, p = 0; i < w * h; i++, p += 4) {
+            const m = currMask[i];
+            if (m === 1) {
+              ov[p] = 46;
+              ov[p + 1] = 204;
+              ov[p + 2] = 113;
+              ov[p + 3] = 115;
+            } else if (m === -1) {
+              ov[p] = 255;
+              ov[p + 1] = 71;
+              ov[p + 2] = 87;
+              ov[p + 3] = 135;
+            }
+          }
+        }
+
+        if (showSeamToggle.checked && nextSeam) {
+          // Draw bright Shu-Red seam (#d64527) with a subtle glow pixel
+          if (seamDirection === "vertical") {
+            for (let y = 0; y < h; y++) {
+              const sx = nextSeam[y];
+              const idx = (y * w + sx) * 4;
+              ov[idx] = 214;
+              ov[idx + 1] = 69;
+              ov[idx + 2] = 39;
+              ov[idx + 3] = 255;
+              if (sx > 0) {
+                const lIdx = (y * w + (sx - 1)) * 4;
+                ov[lIdx] = 230;
+                ov[lIdx + 1] = 138;
+                ov[lIdx + 2] = 117;
+                ov[lIdx + 3] = 140;
+              }
+            }
+          } else {
+            for (let x = 0; x < w; x++) {
+              const sy = nextSeam[x];
+              const idx = (sy * w + x) * 4;
+              ov[idx] = 214;
+              ov[idx + 1] = 69;
+              ov[idx + 2] = 39;
+              ov[idx + 3] = 255;
+              if (sy > 0) {
+                const uIdx = ((sy - 1) * w + x) * 4;
+                ov[uIdx] = 230;
+                ov[uIdx + 1] = 138;
+                ov[uIdx + 2] = 117;
+                ov[uIdx + 3] = 140;
+              }
+            }
+          }
+        }
+
+        overlayCtx.putImageData(ovImg, 0, 0);
+      }
+
+      function updateMetricsUI() {
+        origDimText.textContent = `${origWidth} × ${origHeight}`;
+        currDimText.textContent = `${currWidth} × ${currHeight}`;
+        const removedW = origWidth - currWidth;
+        const removedH = origHeight - currHeight;
+        removedCountText.textContent = `${removedW + removedH}`;
+        seamCostText.textContent = Math.round(lastSeamCost).toLocaleString();
+        calcTimeText.textContent = `${lastCalcMs.toFixed(1)} ms`;
+
+        if (seamDirection === "vertical") {
+          targetSizeSlider.value = String(currWidth);
+          targetSizeLabel.textContent = String(currWidth);
+          targetPctLabel.textContent = String(Math.round((currWidth / origWidth) * 100));
+        } else {
+          targetSizeSlider.value = String(currHeight);
+          targetSizeLabel.textContent = String(currHeight);
+          targetPctLabel.textContent = String(Math.round((currHeight / origHeight) * 100));
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // 5. Interactive Controls & Animation Loop
+      // -----------------------------------------------------------------------
+      function startAnimation() {
+        if (isAnimating) return;
+        isAnimating = true;
+        playPauseBtn.textContent = "⏸ 一時停止";
+        playPauseBtn.classList.add("active");
+
+        function tick() {
+          if (!isAnimating) return;
+          const ok = removeOneSeam(true);
+          if (!ok) {
+            stopAnimation();
+            showToast("最小サイズに到達しました");
+            return;
+          }
+          recomputeAndRender();
+          animFrameId = requestAnimationFrame(tick);
+        }
+        animFrameId = requestAnimationFrame(tick);
+      }
+
+      function stopAnimation() {
+        isAnimating = false;
+        if (animFrameId) {
+          cancelAnimationFrame(animFrameId);
+          animFrameId = null;
+        }
+        playPauseBtn.textContent = "▶ 1本ずつアニメーション削除";
+        playPauseBtn.classList.remove("active");
+      }
+
+      playPauseBtn.addEventListener("click", () => {
+        if (isAnimating) stopAnimation();
+        else startAnimation();
+      });
+
+      stepOnceBtn.addEventListener("click", () => {
+        stopAnimation();
+        if (removeOneSeam(true)) {
+          recomputeAndRender();
+        }
+      });
+
+      carve20Btn.addEventListener("click", () => {
+        stopAnimation();
+        let count = 0;
+        for (let i = 0; i < 25; i++) {
+          computeEnergyAndSeam();
+          if (!removeOneSeam(true)) break;
+          count++;
+        }
+        recomputeAndRender();
+        showToast(`${count}本のシームを一括削除しました`);
+      });
+
+      removeObjectBtn.addEventListener("click", () => {
+        stopAnimation();
+        // Check if any remove mask pixels (-1) exist
+        let hasRemoveMask = false;
+        for (let i = 0; i < currMask.length; i++) {
+          if (currMask[i] === -1) {
+            hasRemoveMask = true;
+            break;
+          }
+        }
+        if (!hasRemoveMask) {
+          applyDemoMask();
+          showToast("サンプルマスクを適用し、赤領域を消去します");
+        }
+        let steps = 0;
+        const maxSteps = 90;
+        while (steps < maxSteps) {
+          let remainingRed = 0;
+          for (let i = 0; i < currMask.length; i++) {
+            if (currMask[i] === -1) remainingRed++;
+          }
+          if (remainingRed === 0) break;
+          computeEnergyAndSeam();
+          if (!removeOneSeam(true)) break;
+          steps++;
+        }
+        recomputeAndRender();
+        showToast(`優先削除マスク領域を ${steps} 本のシーム削除で消去しました`);
+      });
+
+      // Target Size Slider (supports both carving down and restoring from history)
+      targetSizeSlider.addEventListener("input", () => {
+        stopAnimation();
+        const target = parseInt(targetSizeSlider.value, 10);
+        const current = seamDirection === "vertical" ? currWidth : currHeight;
+
+        if (target < current) {
+          const steps = current - target;
+          for (let i = 0; i < steps; i++) {
+            computeEnergyAndSeam();
+            if (!removeOneSeam(true)) break;
+          }
+          recomputeAndRender();
+        } else if (target > current) {
+          // Find matching snapshot in history
+          for (let i = history.length - 1; i >= 0; i--) {
+            const snap = history[i];
+            const dim = seamDirection === "vertical" ? snap.width : snap.height;
+            if (dim >= target) {
+              currWidth = snap.width;
+              currHeight = snap.height;
+              currPixels = new Uint8ClampedArray(snap.pixels);
+              currMask = new Int8Array(snap.mask);
+              history = history.slice(0, i + 1);
+              break;
+            }
+          }
+          recomputeAndRender();
+        }
+      });
+
+      // Direction switching
+      dirVerticalBtn.addEventListener("click", () => {
+        if (seamDirection === "vertical") return;
+        stopAnimation();
+        seamDirection = "vertical";
+        dirVerticalBtn.classList.add("active");
+        dirHorizontalBtn.classList.remove("active");
+        syncSliderRange();
+        recomputeAndRender();
+      });
+
+      dirHorizontalBtn.addEventListener("click", () => {
+        if (seamDirection === "horizontal") return;
+        stopAnimation();
+        seamDirection = "horizontal";
+        dirHorizontalBtn.classList.add("active");
+        dirVerticalBtn.classList.remove("active");
+        syncSliderRange();
+        recomputeAndRender();
+      });
+
+      // -----------------------------------------------------------------------
+      // 6. Interactive Mask Painting on Canvas
+      // -----------------------------------------------------------------------
+      const brushBtns = [brushProtectBtn, brushRemoveBtn, brushEraseBtn];
+      brushBtns.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          brushBtns.forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          brushMode = btn.dataset.brush;
+        });
+      });
+
+      brushSizeSlider.addEventListener("input", () => {
+        brushRadius = parseInt(brushSizeSlider.value, 10);
+        brushSizeVal.textContent = String(brushRadius);
+      });
+
+      let isPainting = false;
+      function paintAtEvent(e) {
+        const rect = overlayCanvas.getBoundingClientRect();
+        const scaleX = currWidth / rect.width;
+        const scaleY = currHeight / rect.height;
+        const cx = Math.round((e.clientX - rect.left) * scaleX);
+        const cy = Math.round((e.clientY - rect.top) * scaleY);
+        const r = Math.max(2, Math.round(brushRadius * 0.5));
+        const val = brushMode === "protect" ? 1 : brushMode === "remove" ? -1 : 0;
+
+        for (let dy = -r; dy <= r; dy++) {
+          const y = cy + dy;
+          if (y < 0 || y >= currHeight) continue;
+          for (let dx = -r; dx <= r; dx++) {
+            const x = cx + dx;
+            if (x < 0 || x >= currWidth) continue;
+            if (dx * dx + dy * dy <= r * r) {
+              currMask[y * currWidth + x] = val;
+            }
+          }
+        }
+        // Update latest history snapshot mask too
+        if (history.length > 0) {
+          history[history.length - 1].mask.set(currMask);
+        }
+        recomputeAndRender();
+      }
+
+      overlayCanvas.addEventListener("pointerdown", (e) => {
+        stopAnimation();
+        isPainting = true;
+        overlayCanvas.setPointerCapture(e.pointerId);
+        paintAtEvent(e);
+      });
+      overlayCanvas.addEventListener("pointermove", (e) => {
+        if (!isPainting) return;
+        paintAtEvent(e);
+      });
+      overlayCanvas.addEventListener("pointerup", () => {
+        isPainting = false;
+      });
+      overlayCanvas.addEventListener("pointercancel", () => {
+        isPainting = false;
+      });
+
+      function applyDemoMask() {
+        stopAnimation();
+        if (currentPreset !== "torii" || currWidth !== origWidth || currHeight !== origHeight) {
+          currentPreset = "torii";
+          setActivePresetBtn(presetToriiBtn);
+          generatePresetScene("torii");
+        }
+        currMask.fill(0);
+        // Protect the red Torii gate on the left (green mask = 1)
+        paintCircleMask(88, 132, 38, 1);
+        // Protect the full moon (green mask = 1)
+        paintCircleMask(215, 58, 26, 1);
+        // Mark the middle wooden boat for removal (red mask = -1)
+        paintCircleMask(198, 195, 22, -1);
+
+        if (history.length > 0) {
+          history[history.length - 1].mask.set(currMask);
+        }
+        showMaskToggle.checked = true;
+        recomputeAndRender();
+        showToast("鳥居と満月を保護（緑）し、中央の舟を優先削除（赤）に設定しました");
+      }
+
+      function paintCircleMask(cx, cy, r, val) {
+        for (let dy = -r; dy <= r; dy++) {
+          const y = cy + dy;
+          if (y < 0 || y >= currHeight) continue;
+          for (let dx = -r; dx <= r; dx++) {
+            const x = cx + dx;
+            if (x < 0 || x >= currWidth) continue;
+            if (dx * dx + dy * dy <= r * r) {
+              currMask[y * currWidth + x] = val;
+            }
+          }
+        }
+      }
+
+      demoMaskBtn.addEventListener("click", applyDemoMask);
+
+      clearMaskBtn.addEventListener("click", () => {
+        currMask.fill(0);
+        if (history.length > 0) {
+          history[history.length - 1].mask.set(currMask);
+        }
+        recomputeAndRender();
+        showToast("マスクを消去しました");
+      });
+
+      // -----------------------------------------------------------------------
+      // 7. Presets, View Modes, File Upload / Drag & Drop / Paste / Export
+      // -----------------------------------------------------------------------
+      function setActivePresetBtn(activeBtn) {
+        [presetToriiBtn, presetGardenBtn, presetGeoBtn].forEach((b) => b.classList.remove("active"));
+        if (activeBtn) activeBtn.classList.add("active");
+      }
+
+      presetToriiBtn.addEventListener("click", () => {
+        currentPreset = "torii";
+        setActivePresetBtn(presetToriiBtn);
+        generatePresetScene("torii");
+      });
+      presetGardenBtn.addEventListener("click", () => {
+        currentPreset = "garden";
+        setActivePresetBtn(presetGardenBtn);
+        generatePresetScene("garden");
+      });
+      presetGeoBtn.addEventListener("click", () => {
+        currentPreset = "geo";
+        setActivePresetBtn(presetGeoBtn);
+        generatePresetScene("geo");
+      });
+
+      resetBtn.addEventListener("click", () => {
+        stopAnimation();
+        if (origPixels) {
+          const imgData = new ImageData(new Uint8ClampedArray(origPixels), origWidth, origHeight);
+          loadFromImageData(imgData);
+          showToast("初期サイズにリセットしました");
+        }
+      });
+
+      viewModeBtns.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          viewModeBtns.forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          viewMode = btn.dataset.view;
+          renderCanvases();
+        });
+      });
+
+      showSeamToggle.addEventListener("change", renderCanvases);
+      showMaskToggle.addEventListener("change", renderCanvases);
+
+      function handleImageFile(file) {
+        if (!file || !file.type.startsWith("image/")) return;
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+          URL.revokeObjectURL(url);
+          const maxDim = 420;
+          let w = img.naturalWidth;
+          let h = img.naturalHeight;
+          if (w > maxDim || h > maxDim) {
+            const scale = Math.min(maxDim / w, maxDim / h);
+            w = Math.max(60, Math.round(w * scale));
+            h = Math.max(60, Math.round(h * scale));
+          }
+          const off = document.createElement("canvas");
+          off.width = w;
+          off.height = h;
+          const ctx = off.getContext("2d");
+          ctx.drawImage(img, 0, 0, w, h);
+          setActivePresetBtn(null);
+          currentPreset = "custom";
+          loadFromImageData(ctx.getImageData(0, 0, w, h));
+          showToast(`画像を読み込みました (${w} × ${h})`);
+        };
+        img.src = url;
+      }
+
+      fileInput.addEventListener("change", (e) => {
+        if (e.target.files && e.target.files[0]) {
+          handleImageFile(e.target.files[0]);
+        }
+      });
+
+      dropZone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        dropZone.classList.add("dragover");
+      });
+      dropZone.addEventListener("dragleave", () => {
+        dropZone.classList.remove("dragover");
+      });
+      dropZone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        dropZone.classList.remove("dragover");
+        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+          handleImageFile(e.dataTransfer.files[0]);
+        }
+      });
+
+      window.addEventListener("paste", (e) => {
+        const items = e.clipboardData && e.clipboardData.items;
+        if (!items) return;
+        for (const item of items) {
+          if (item.type.startsWith("image/")) {
+            handleImageFile(item.getAsFile());
+            break;
+          }
+        }
+      });
+
+      downloadBtn.addEventListener("click", () => {
+        const link = document.createElement("a");
+        link.download = `seam-carved-${currWidth}x${currHeight}.png`;
+        link.href = mainCanvas.toDataURL("image/png");
+        link.click();
+        showToast("PNG画像を保存しました");
+      });
+
+      copyBtn.addEventListener("click", async () => {
+        try {
+          const blob = await new Promise((resolve) => mainCanvas.toBlob(resolve, "image/png"));
+          await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+          showToast("クリップボードにコピーしました");
+        } catch {
+          showToast("コピーに失敗しました（ブラウザ権限をご確認ください）");
+        }
+      });
+
+      // Initialize with the default Japanese twilight Torii scene
+      generatePresetScene("torii");
+    })();
+  </script>
+</body>
+</html>

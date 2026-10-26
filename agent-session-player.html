@@ -1,0 +1,1607 @@
+<!DOCTYPE html>
+<html lang="ja" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <title>Agent Session Player — Zen Lab Tools</title>
+  <meta name="description" content="AIコーディングエージェント（Antigravity / Claude Code）の .jsonl セッショントランスクリプトをウォーターフォールタイムラインとステッププレイヤーで可視化・再生するツール">
+  <style>
+    :root {
+      color-scheme: dark;
+      --color-primary: #e68a75;
+      --color-shu-red: #d64527;
+      --color-on-shu-red: #ffffff;
+      --color-background: #081617;
+      --color-on-surface: #f0f4f5;
+      --color-on-surface-variant: #9eb3b5;
+      --color-surface-container: #1b2f31;
+      --color-surface-container-low: #142527;
+      --color-surface-container-lowest: #0a1819;
+      --color-surface-container-high: #243c3e;
+      --color-ink-border: #334a4c;
+      --color-success: oklch(79.2% 0.209 151.711);
+      --focus-ring: 0 0 0 2px var(--color-background), 0 0 0 4px var(--color-shu-red);
+      --font-mincho: "Hiragino Mincho ProN", "YuMincho", "Yu Mincho", "Noto Serif CJK JP", serif;
+      --font-gothic: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "YuGothic", "Yu Gothic", "Noto Sans CJK JP", sans-serif;
+      --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      --radius-sm: 0.25rem;
+      --radius-md: 0.375rem;
+      --radius-lg: 0.5rem;
+
+      /* Step Category Colors */
+      --cat-user: #5ca8ff;
+      --cat-thinking: #b589f7;
+      --cat-tool: #e68a75;
+      --cat-subagent: #f0b429;
+      --cat-response: #48c78e;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--color-background);
+      color: var(--color-on-surface);
+      font-family: var(--font-gothic);
+      line-height: 1.65;
+    }
+    .site-header {
+      border-bottom: 1px solid var(--color-ink-border);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: var(--font-mono);
+      font-size: 0.8125rem;
+    }
+    .site-header a {
+      color: var(--color-on-surface-variant);
+      text-decoration: none;
+    }
+    .site-header a:hover { color: var(--color-primary); }
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 28px 20px 64px;
+    }
+    h1 {
+      font-family: var(--font-mincho);
+      font-size: clamp(1.35rem, 1.1rem + 1vw, 2rem);
+      margin: 0 0 8px;
+      letter-spacing: 0.02em;
+    }
+    button, input, select, textarea {
+      font-family: inherit;
+      color: inherit;
+    }
+    button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
+      outline: none;
+      box-shadow: var(--focus-ring);
+    }
+
+    /* Top bar & Ingestion */
+    .top-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .subtitle {
+      margin: 0;
+      color: var(--color-on-surface-variant);
+      font-size: 0.9rem;
+    }
+    .ingest-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 13px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--color-ink-border);
+      background: var(--color-surface-container-low);
+      color: var(--color-on-surface);
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+    .btn:hover {
+      border-color: var(--color-primary);
+      background: var(--color-surface-container);
+    }
+    .btn-primary {
+      background: var(--color-shu-red);
+      border-color: var(--color-shu-red);
+      color: var(--color-on-shu-red);
+      font-weight: 600;
+    }
+    .btn-primary:hover {
+      background: color-mix(in oklab, var(--color-shu-red) 85%, white);
+      border-color: color-mix(in oklab, var(--color-shu-red) 85%, white);
+    }
+    .btn-active {
+      border-color: var(--color-shu-red);
+      background: color-mix(in oklab, var(--color-shu-red) 22%, var(--color-surface-container));
+      color: var(--color-primary);
+    }
+
+    /* Dropzone banner */
+    .dropzone {
+      border: 1px dashed var(--color-ink-border);
+      background: var(--color-surface-container-lowest);
+      border-radius: var(--radius-lg);
+      padding: 12px 16px;
+      margin-bottom: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      transition: border-color 0.15s ease, background-color 0.15s ease;
+    }
+    .dropzone.dragover {
+      border-color: var(--color-shu-red);
+      background: color-mix(in oklab, var(--color-shu-red) 12%, var(--color-surface-container-lowest));
+    }
+    .dropzone-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.84rem;
+      color: var(--color-on-surface-variant);
+    }
+    .format-badge {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--color-surface-container);
+      color: var(--color-primary);
+      border: 1px solid var(--color-ink-border);
+    }
+
+    /* KPI Summary Bar */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    .kpi-card {
+      background: var(--color-surface-container-low);
+      border: 1px solid var(--color-ink-border);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .kpi-label {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--color-on-surface-variant);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .kpi-value {
+      font-family: var(--font-mono);
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--color-on-surface);
+    }
+    .kpi-sub {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--color-on-surface-variant);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 2px;
+    }
+    .tool-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: var(--color-surface-container-lowest);
+      border: 1px solid var(--color-ink-border);
+      border-radius: var(--radius-sm);
+      padding: 1px 6px;
+      font-size: 0.68rem;
+      color: var(--color-primary);
+    }
+
+    /* Waterfall / Gantt Timeline */
+    .timeline-panel {
+      background: var(--color-surface-container-low);
+      border: 1px solid var(--color-ink-border);
+      border-radius: var(--radius-lg);
+      padding: 14px 16px;
+      margin-bottom: 16px;
+    }
+    .timeline-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .timeline-title {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--color-on-surface-variant);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--color-on-surface-variant);
+    }
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .legend-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 2px;
+      display: inline-block;
+    }
+    .gantt-container {
+      position: relative;
+      background: var(--color-surface-container-lowest);
+      border: 1px solid var(--color-ink-border);
+      border-radius: var(--radius-md);
+      padding: 10px 8px 6px;
+      overflow-x: auto;
+    }
+    .gantt-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 600px;
+    }
+    .gantt-row {
+      display: grid;
+      grid-template-columns: 120px 1fr 58px;
+      align-items: center;
+      gap: 8px;
+      height: 20px;
+      padding: 0 6px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      transition: background 0.1s ease;
+    }
+    .gantt-row:hover {
+      background: var(--color-surface-container);
+    }
+    .gantt-row.active {
+      background: color-mix(in oklab, var(--color-shu-red) 24%, var(--color-surface-container));
+      outline: 1px solid var(--color-shu-red);
+    }
+    .gantt-row-label {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: var(--color-on-surface-variant);
+    }
+    .gantt-row.active .gantt-row-label {
+      color: var(--color-on-surface);
+      font-weight: 600;
+    }
+    .gantt-track {
+      position: relative;
+      height: 12px;
+      background: rgba(255, 255, 255, 0.03);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .gantt-bar {
+      position: absolute;
+      top: 1px;
+      bottom: 1px;
+      border-radius: 2px;
+      min-width: 6px;
+      transition: filter 0.15s ease;
+    }
+    .gantt-row:hover .gantt-bar {
+      filter: brightness(1.2);
+    }
+    .gantt-dur {
+      text-align: right;
+      color: var(--color-on-surface-variant);
+      font-size: 0.68rem;
+    }
+
+    /* Playback & Filter Controls Bar */
+    .controls-bar {
+      background: var(--color-surface-container-low);
+      border: 1px solid var(--color-ink-border);
+      border-radius: var(--radius-lg);
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .playback-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .speed-group {
+      display: inline-flex;
+      border: 1px solid var(--color-ink-border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+    .speed-btn {
+      background: var(--color-surface-container-lowest);
+      border: none;
+      border-right: 1px solid var(--color-ink-border);
+      padding: 5px 9px;
+      font-family: var(--font-mono);
+      font-size: 0.74rem;
+      color: var(--color-on-surface-variant);
+      cursor: pointer;
+    }
+    .speed-btn:last-child { border-right: none; }
+    .speed-btn.active {
+      background: var(--color-shu-red);
+      color: var(--color-on-shu-red);
+      font-weight: 600;
+    }
+    .step-counter {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--color-on-surface-variant);
+      margin-left: 6px;
+    }
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      flex: 1;
+      justify-content: flex-end;
+    }
+    .type-filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .chip-btn {
+      background: var(--color-surface-container-lowest);
+      border: 1px solid var(--color-ink-border);
+      color: var(--color-on-surface-variant);
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      padding: 4px 9px;
+      border-radius: 999px;
+      cursor: pointer;
+    }
+    .chip-btn.active {
+      background: var(--color-shu-red);
+      border-color: var(--color-shu-red);
+      color: var(--color-on-shu-red);
+    }
+    .search-input {
+      background: var(--color-surface-container-lowest);
+      border: 1px solid var(--color-ink-border);
+      border-radius: var(--radius-md);
+      padding: 6px 10px;
+      font-size: 0.8rem;
+      color: var(--color-on-surface);
+      min-width: 190px;
+    }
+
+    /* Main Split Workspace: Step List + Inspector */
+    .workspace {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+    @media (max-width: 860px) {
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Step List */
+    .step-list-panel {
+      background: var(--color-surface-container-low);
+      border: 1px solid var(--color-ink-border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      max-height: 680px;
+    }
+    .panel-header {
+      padding: 10px 14px;
+      background: var(--color-surface-container);
+      border-bottom: 1px solid var(--color-ink-border);
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      color: var(--color-on-surface-variant);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .step-list {
+      overflow-y: auto;
+      divide-y: 1px solid var(--color-ink-border);
+      flex: 1;
+    }
+    .step-item {
+      padding: 10px 12px;
+      border-bottom: 1px solid color-mix(in oklab, var(--color-ink-border) 60%, transparent);
+      cursor: pointer;
+      transition: background 0.12s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .step-item:hover {
+      background: var(--color-surface-container);
+    }
+    .step-item.active {
+      background: color-mix(in oklab, var(--color-shu-red) 18%, var(--color-surface-container));
+      border-left: 3px solid var(--color-shu-red);
+      padding-left: 9px;
+    }
+    .step-item-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+    }
+    .step-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 1px 7px;
+      border-radius: var(--radius-sm);
+      font-weight: 600;
+      font-size: 0.68rem;
+      color: #081617;
+    }
+    .step-time {
+      color: var(--color-on-surface-variant);
+      font-size: 0.68rem;
+    }
+    .step-summary {
+      font-size: 0.82rem;
+      color: var(--color-on-surface);
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      word-break: break-word;
+    }
+    .step-meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      align-items: center;
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--color-on-surface-variant);
+    }
+
+    /* Detailed Inspector */
+    .inspector-panel {
+      background: var(--color-surface-container-low);
+      border: 1px solid var(--color-ink-border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      min-height: 480px;
+    }
+    .inspector-body {
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .inspector-meta-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+      background: var(--color-surface-container-lowest);
+      border: 1px solid var(--color-ink-border);
+      border-radius: var(--radius-md);
+      padding: 12px;
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+    }
+    .meta-cell-label {
+      color: var(--color-on-surface-variant);
+      font-size: 0.68rem;
+      display: block;
+    }
+    .meta-cell-val {
+      color: var(--color-on-surface);
+      font-weight: 600;
+    }
+    .section-block {
+      border: 1px solid var(--color-ink-border);
+      border-radius: var(--radius-md);
+      background: var(--color-surface-container-lowest);
+      overflow: hidden;
+    }
+    .section-block-header {
+      padding: 8px 12px;
+      background: var(--color-surface-container);
+      border-bottom: 1px solid var(--color-ink-border);
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .section-thinking .section-block-header {
+      border-left: 3px solid var(--cat-thinking);
+      color: #d7befb;
+    }
+    .section-tool .section-block-header {
+      border-left: 3px solid var(--cat-tool);
+      color: var(--color-primary);
+    }
+    .section-content .section-block-header {
+      border-left: 3px solid var(--cat-response);
+      color: #8ce0b9;
+    }
+    .section-pre {
+      margin: 0;
+      padding: 12px 14px;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: var(--color-on-surface);
+      max-height: 340px;
+      overflow-y: auto;
+    }
+    .tool-call-card {
+      border-bottom: 1px solid var(--color-ink-border);
+    }
+    .tool-call-card:last-child {
+      border-bottom: none;
+    }
+    .tool-call-subheader {
+      padding: 7px 12px;
+      background: rgba(255, 255, 255, 0.03);
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .copy-mini-btn {
+      background: var(--color-surface-container-low);
+      border: 1px solid var(--color-ink-border);
+      color: var(--color-on-surface-variant);
+      border-radius: var(--radius-sm);
+      padding: 2px 7px;
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      cursor: pointer;
+    }
+    .copy-mini-btn:hover {
+      color: var(--color-on-surface);
+      border-color: var(--color-primary);
+    }
+
+    /* Paste Modal */
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(5, 14, 15, 0.78);
+      z-index: 50;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal-backdrop.open {
+      display: flex;
+    }
+    .modal-card {
+      background: var(--color-surface-container-low);
+      border: 1px solid var(--color-ink-border);
+      border-radius: var(--radius-lg);
+      width: 100%;
+      max-width: 680px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .modal-textarea {
+      width: 100%;
+      min-height: 240px;
+      background: var(--color-surface-container-lowest);
+      border: 1px solid var(--color-ink-border);
+      border-radius: var(--radius-md);
+      padding: 12px;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--color-on-surface);
+      resize: vertical;
+    }
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    .empty-msg {
+      padding: 32px;
+      text-align: center;
+      font-family: var(--font-mono);
+      color: var(--color-on-surface-variant);
+      font-size: 0.85rem;
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <a href="./">← tools.zen-lab.dev</a>
+    <a href="./colophon.html#agent-session-player.html">Docs &amp; History</a>
+  </header>
+  <main>
+    <div class="top-bar">
+      <div>
+        <h1>Agent Session Player</h1>
+        <p class="subtitle">Antigravity (`transcript.jsonl`) / Claude Code (`.jsonl`) の実行ログをタイムライン＆ステップ再生で解剖</p>
+      </div>
+      <div class="ingest-actions">
+        <button type="button" class="btn btn-primary" id="btn-sample-agy">サンプル読込 (Antigravity)</button>
+        <button type="button" class="btn" id="btn-sample-claude">サンプル読込 (Claude Code)</button>
+        <label class="btn" for="file-input" tabindex="0">📂 .jsonl ファイル選択</label>
+        <input type="file" id="file-input" accept=".jsonl,.json,.log,.txt" style="display:none">
+        <button type="button" class="btn" id="btn-open-paste">📋 JSONL貼り付け</button>
+      </div>
+    </div>
+
+    <div class="dropzone" id="dropzone">
+      <div class="dropzone-info">
+        <span>💡 ここに <code>transcript.jsonl</code> または Claude Code の <code>.jsonl</code> ファイルをドラッグ＆ドロップして読み込み（完全ローカル処理）</span>
+      </div>
+      <div>
+        <span class="format-badge" id="detected-format-badge">Format: Antigravity JSONL</span>
+      </div>
+    </div>
+
+    <!-- Summary KPI Bar -->
+    <section class="kpi-grid" aria-label="セッションサマリ指標">
+      <div class="kpi-card">
+        <span class="kpi-label">Total Duration</span>
+        <span class="kpi-value" id="kpi-duration">0.0s</span>
+        <span class="kpi-sub" id="kpi-time-range">--</span>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-label">Total Steps</span>
+        <span class="kpi-value" id="kpi-steps">0</span>
+        <span class="kpi-sub" id="kpi-steps-sub">Thinking: 0 / Subagent: 0</span>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-label">Tool Calls Breakdown</span>
+        <span class="kpi-value" id="kpi-tools-count">0 calls</span>
+        <div class="kpi-sub" id="kpi-tools-breakdown"></div>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-label">Chars / Est. Tokens</span>
+        <span class="kpi-value" id="kpi-tokens">0 tok</span>
+        <span class="kpi-sub" id="kpi-chars">0 chars</span>
+      </div>
+    </section>
+
+    <!-- Waterfall / Gantt Bar Chart -->
+    <section class="timeline-panel" aria-label="ステップ所要時間ウォーターフォール">
+      <div class="timeline-header">
+        <div class="timeline-title">
+          <span>⏱ Step Duration Waterfall (クリックで該当ステップへジャンプ)</span>
+        </div>
+        <div class="legend">
+          <span class="legend-item"><span class="legend-dot" style="background:var(--cat-user)"></span>User Input</span>
+          <span class="legend-item"><span class="legend-dot" style="background:var(--cat-thinking)"></span>Thinking</span>
+          <span class="legend-item"><span class="legend-dot" style="background:var(--cat-tool)"></span>Tool Call</span>
+          <span class="legend-item"><span class="legend-dot" style="background:var(--cat-subagent)"></span>Subagent</span>
+          <span class="legend-item"><span class="legend-dot" style="background:var(--cat-response)"></span>Response</span>
+        </div>
+      </div>
+      <div class="gantt-container">
+        <div class="gantt-rows" id="gantt-rows"></div>
+      </div>
+    </section>
+
+    <!-- Playback & Search Controls -->
+    <section class="controls-bar" aria-label="再生・フィルタ操作">
+      <div class="playback-group">
+        <button type="button" class="btn" id="btn-prev" title="前のステップ (←)">⏮ Prev</button>
+        <button type="button" class="btn btn-primary" id="btn-play" title="自動再生/一時停止 (Space)">▶ Play</button>
+        <button type="button" class="btn" id="btn-next" title="次のステップ (→)">⏭ Next</button>
+        <div class="speed-group" role="group" aria-label="再生速度">
+          <button type="button" class="speed-btn active" data-speed="1">1x</button>
+          <button type="button" class="speed-btn" data-speed="2">2x</button>
+          <button type="button" class="speed-btn" data-speed="4">4x</button>
+        </div>
+        <span class="step-counter" id="step-counter">Step 1 / 1</span>
+      </div>
+      <div class="filter-group">
+        <div class="type-filters" id="type-filters">
+          <button type="button" class="chip-btn active" data-cat="all">All</button>
+          <button type="button" class="chip-btn" data-cat="user">User</button>
+          <button type="button" class="chip-btn" data-cat="thinking">Thinking</button>
+          <button type="button" class="chip-btn" data-cat="tool">Tool</button>
+          <button type="button" class="chip-btn" data-cat="subagent">Subagent</button>
+          <button type="button" class="chip-btn" data-cat="response">Response</button>
+        </div>
+        <input type="search" id="search-input" class="search-input" placeholder="思考・ツール名・引数で検索..." autocomplete="off">
+      </div>
+    </section>
+
+    <!-- Split Workspace -->
+    <section class="workspace" aria-label="ステップ一覧と詳細インスペクタ">
+      <div class="step-list-panel">
+        <div class="panel-header">
+          <span>STEPS TIMELINE (JST)</span>
+          <span id="filtered-count-label">0 steps</span>
+        </div>
+        <div class="step-list" id="step-list"></div>
+      </div>
+
+      <div class="inspector-panel">
+        <div class="panel-header">
+          <span id="inspector-header-title">STEP INSPECTOR</span>
+          <span id="inspector-header-time">Asia/Tokyo (JST)</span>
+        </div>
+        <div class="inspector-body" id="inspector-body"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Paste JSONL Modal -->
+  <div class="modal-backdrop" id="paste-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <strong id="modal-title" style="font-family:var(--font-mincho);font-size:1.1rem;">JSONL トランスクリプトを貼り付け</strong>
+        <button type="button" class="btn" id="btn-close-paste">✕ 閉じる</button>
+      </div>
+      <p style="margin:0;font-size:0.82rem;color:var(--color-on-surface-variant);">
+        Antigravity の <code>transcript.jsonl</code> または Claude Code のセッション <code>.jsonl</code> をそのまま貼り付けてください（1行1JSONオブジェクト）。
+      </p>
+      <textarea id="paste-textarea" class="modal-textarea" placeholder='{"step_index":0,"type":"USER_INPUT","created_at":"2026-10-26T13:00:00Z","content":"..."}'></textarea>
+      <div class="modal-footer">
+        <button type="button" class="btn" id="btn-cancel-paste">キャンセル</button>
+        <button type="button" class="btn btn-primary" id="btn-apply-paste">読み込む</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Built-in realistic samples (Antigravity transcript.jsonl & Claude Code .jsonl)
+    const SAMPLE_ANTIGRAVITY_JSONL = [
+      {
+        step_index: 0,
+        source: "USER_EXPLICIT",
+        type: "USER_INPUT",
+        status: "DONE",
+        created_at: "2026-10-26T13:10:00.000Z",
+        content: "build.ts の Markdown パーサーでテーブル記法とインラインコードのエスケープ漏れがないか調査し、テストを追加して検証してください。"
+      },
+      {
+        step_index: 1,
+        source: "MODEL",
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-10-26T13:10:02.400Z",
+        thinking: "ユーザーは build.ts の Markdown パーサー部分の調査とテスト追加を求めている。\nまず read_file で build.ts と tools.test.ts を並列で読み、renderSimpleMarkdown の実装を確認しよう。",
+        tool_calls: [
+          {
+            name: "read_file",
+            args: { Path: "/Users/akameco/dev/github.com/akameco/tools/build.ts", StartLine: 95, EndLine: 175 },
+            output: "104: function renderSimpleMarkdown(md: string): string {\n105:   const lines = md.split(/\\r?\\n/);\n111:   const formatInline = (text: string) => escapeHtml(text)..."
+          },
+          {
+            name: "read_file",
+            args: { Path: "/Users/akameco/dev/github.com/akameco/tools/tools.test.ts", StartLine: 1, EndLine: 50 },
+            output: "1: import { describe, expect, test } from 'bun:test';\n..."
+          }
+        ],
+        content: ""
+      },
+      {
+        step_index: 2,
+        source: "MODEL",
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-10-26T13:10:06.100Z",
+        thinking: "コードベース全体の他のツールで Markdown 変換が使われている箇所がないか research サブエージェントに調査させつつ、メイン側でテストケースを設計する。",
+        tool_calls: [
+          {
+            name: "invoke_subagent",
+            args: {
+              TypeName: "research",
+              Role: "Markdown Usage Researcher",
+              Prompt: "リポジトリ内の .docs.md ファイルで使われている Markdown 構文パターンを走査して報告してください。"
+            },
+            output: "Subagent launched: conversationId=9b71c4a2-8810-4f12-9a11-002345abcdef (Found headings, lists, fenced code blocks, inline code)"
+          }
+        ],
+        content: ""
+      },
+      {
+        step_index: 3,
+        source: "MODEL",
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-10-26T13:10:12.800Z",
+        thinking: "サブエージェントの報告で、インラインコード内に HTML 特殊文字（`<script>` 等）が含まれるケースの検証が重要だとわかった。edit_file でユニットテストを追加しよう。",
+        tool_calls: [
+          {
+            name: "edit_file",
+            args: {
+              Path: "/Users/akameco/dev/github.com/akameco/tools/tools.test.ts",
+              Target: "expect(body.length).toBeGreaterThan(20);",
+              Replacement: "expect(body.length).toBeGreaterThan(20);\n      expect(docs).not.toContain('alert(1)');"
+            },
+            output: "Successfully edited /Users/akameco/dev/github.com/akameco/tools/tools.test.ts"
+          }
+        ],
+        content: ""
+      },
+      {
+        step_index: 4,
+        source: "MODEL",
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-10-26T13:10:16.300Z",
+        thinking: "テストを追加したので bun test を実行して全てのテストがパスするか確かめる。",
+        tool_calls: [
+          {
+            name: "run_command",
+            args: {
+              CommandLine: "bun test",
+              WaitMsBeforeAsync: 5000,
+              toolSummary: "Run bun test suite"
+            },
+            output: "bun test v1.2.4\n✓ tools validation > at least one tool exists [1.12ms]\n✓ 18 pass, 0 fail"
+          }
+        ],
+        content: ""
+      },
+      {
+        step_index: 5,
+        source: "MODEL",
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-10-26T13:10:19.000Z",
+        thinking: "すべての検査が通ったため、調査結果と変更内容を日本語で簡潔に報告する。",
+        tool_calls: [],
+        content: "`build.ts` の `renderSimpleMarkdown` を調査し、`escapeHtml` が先に適用されるため XSS やタグ破損が起きないことを確認しました。あわせて `tools.test.ts` に検証アサーションを追加し、`bun test` が全件パスすることを確認済みです。"
+      }
+    ].map((obj) => JSON.stringify(obj)).join("\n");
+
+    const SAMPLE_CLAUDE_CODE_JSONL = [
+      {
+        type: "user",
+        timestamp: "2026-10-26T14:00:00.000Z",
+        message: {
+          role: "user",
+          content: [{ type: "text", text: "SQLite のクエリプランを可視化するツールのパフォーマンスボトルネックを調べてください。" }]
+        }
+      },
+      {
+        type: "assistant",
+        timestamp: "2026-10-26T14:00:03.200Z",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "thinking",
+              thinking: "まずは Glob と Read ツールで対象ファイルを探し、DOM 再描画の頻度を調べる。"
+            },
+            {
+              type: "tool_use",
+              id: "toolu_01A",
+              name: "Read",
+              input: { file_path: "/Users/akameco/dev/github.com/akameco/tools/build.ts", limit: 120 }
+            }
+          ]
+        }
+      },
+      {
+        type: "assistant",
+        timestamp: "2026-10-26T14:00:07.900Z",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "thinking",
+              thinking: "Task ツールでサブエージェントを起動して正規表現のベンチマークを並列計測する。"
+            },
+            {
+              type: "tool_use",
+              id: "toolu_02B",
+              name: "Task",
+              input: { description: "Benchmark regex parser", subagent_type: "general-purpose", prompt: "Measure regex execution time on 500KB markdown input." }
+            }
+          ]
+        }
+      },
+      {
+        type: "assistant",
+        timestamp: "2026-10-26T14:00:13.400Z",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "thinking",
+              thinking: "計測結果が出た。Bash ツールで `bun test` を走らせて回帰がないか確認する。"
+            },
+            {
+              type: "tool_use",
+              id: "toolu_03C",
+              name: "Bash",
+              input: { command: "bun test", description: "Run unit tests" }
+            }
+          ]
+        }
+      },
+      {
+        type: "assistant",
+        timestamp: "2026-10-26T14:00:16.100Z",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "text",
+              text: "調査が完了しました。500KB の入力に対してもパース時間は 2.4ms 未満であり、ボトルネックは初回レンダリング時のレイアウトスラッシングにあることが判明しました。"
+            }
+          ]
+        }
+      }
+    ].map((obj) => JSON.stringify(obj)).join("\n");
+
+    const CATEGORY_META = {
+      user: { label: "User Input", color: "var(--cat-user)" },
+      thinking: { label: "Thinking", color: "var(--cat-thinking)" },
+      tool: { label: "Tool Call", color: "var(--cat-tool)" },
+      subagent: { label: "Subagent", color: "var(--cat-subagent)" },
+      response: { label: "Response", color: "var(--cat-response)" }
+    };
+
+    let allSteps = [];
+    let filteredSteps = [];
+    let activeStepId = 0;
+    let activeCategory = "all";
+    let searchQuery = "";
+    let playTimer = null;
+    let playSpeed = 1;
+    let detectedFormat = "Antigravity JSONL";
+
+    function formatJstFull(ms) {
+      if (!Number.isFinite(ms)) return "--";
+      const d = new Date(ms);
+      const parts = new Intl.DateTimeFormat("ja-JP", {
+        timeZone: "Asia/Tokyo",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        fractionalSecondDigits: 3,
+        hour12: false
+      }).formatToParts(d);
+      const get = (t) => parts.find((p) => p.type === t)?.value || "";
+      return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")}.${get("fractionalSecond")} JST`;
+    }
+
+    function formatJstShort(ms) {
+      if (!Number.isFinite(ms)) return "--:--:--";
+      const d = new Date(ms);
+      const parts = new Intl.DateTimeFormat("ja-JP", {
+        timeZone: "Asia/Tokyo",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false
+      }).formatToParts(d);
+      const get = (t) => parts.find((p) => p.type === t)?.value || "";
+      return `${get("hour")}:${get("minute")}:${get("second")} JST`;
+    }
+
+    function formatDuration(ms) {
+      if (!Number.isFinite(ms) || ms < 0) return "0.0s";
+      if (ms < 1000) return `${Math.round(ms)}ms`;
+      if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+      const m = Math.floor(ms / 60000);
+      const s = ((ms % 60000) / 1000).toFixed(1);
+      return `${m}m ${s}s`;
+    }
+
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function normalizeLine(raw, idx) {
+      // Detect Claude Code vs Antigravity format
+      const isClaude = ("message" in raw && (raw.type === "user" || raw.type === "assistant")) || ("timestamp" in raw && !("step_index" in raw));
+      const tsStr = raw.created_at || raw.timestamp || new Date(Date.now() + idx * 2000).toISOString();
+      const tsMs = Date.parse(tsStr) || (Date.now() + idx * 2000);
+
+      let thinking = "";
+      let content = "";
+      let toolCalls = [];
+      let source = raw.source || (raw.type === "user" ? "USER" : "ASSISTANT");
+      let rawType = raw.type || "STEP";
+
+      if (isClaude && raw.message) {
+        const blocks = Array.isArray(raw.message.content)
+          ? raw.message.content
+          : [{ type: "text", text: String(raw.message.content || "") }];
+        for (const b of blocks) {
+          if (b.type === "thinking") {
+            thinking += (thinking ? "\n" : "") + (b.thinking || b.text || "");
+          } else if (b.type === "tool_use") {
+            toolCalls.push({
+              name: b.name || "tool",
+              args: b.input || {},
+              output: b.output || ""
+            });
+          } else if (b.type === "text") {
+            content += (content ? "\n" : "") + (b.text || "");
+          }
+        }
+      } else {
+        thinking = raw.thinking || "";
+        content = typeof raw.content === "string" ? raw.content : JSON.stringify(raw.content || "");
+        if (Array.isArray(raw.tool_calls)) {
+          toolCalls = raw.tool_calls.map((tc) => ({
+            name: tc.name || tc.tool_name || tc.function?.name || "tool_call",
+            args: tc.args || tc.arguments || tc.input || tc.function?.arguments || {},
+            output: tc.output || tc.result || ""
+          }));
+        }
+      }
+
+      // Classify category
+      let category = "response";
+      const isSubagentCall = toolCalls.some((t) => /subagent|task|agent/i.test(t.name));
+      if (rawType === "USER_INPUT" || raw.type === "user" || source === "USER_EXPLICIT") {
+        category = "user";
+      } else if (isSubagentCall) {
+        category = "subagent";
+      } else if (toolCalls.length > 0) {
+        category = "tool";
+      } else if (thinking && !content) {
+        category = "thinking";
+      } else {
+        category = "response";
+      }
+
+      const summarySource =
+        content.trim() ||
+        (toolCalls.length > 0 ? `${toolCalls.map((t) => t.name).join(", ")} (${toolCalls.length})` : "") ||
+        thinking.trim() ||
+        rawType;
+
+      const totalChars =
+        thinking.length +
+        content.length +
+        toolCalls.reduce((acc, t) => acc + JSON.stringify(t.args).length + String(t.output || "").length, 0);
+
+      return {
+        id: idx,
+        stepIndex: raw.step_index ?? idx,
+        format: isClaude ? "Claude Code JSONL" : "Antigravity JSONL",
+        source,
+        rawType,
+        category,
+        tsMs,
+        durationMs: 0,
+        offsetMs: 0,
+        thinking,
+        content,
+        toolCalls,
+        summary: summarySource.slice(0, 140),
+        totalChars,
+        estTokens: Math.max(1, Math.round(totalChars / 3.5)),
+        raw
+      };
+    }
+
+    function parseJsonlSession(text) {
+      const lines = text
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean);
+
+      const parsed = [];
+      for (let i = 0; i < lines.length; i++) {
+        try {
+          const obj = JSON.parse(lines[i]);
+          parsed.push(normalizeLine(obj, parsed.length));
+        } catch (err) {
+          // Ignore malformed comment lines if any
+        }
+      }
+
+      if (parsed.length === 0) return;
+
+      detectedFormat = parsed[0].format;
+      document.getElementById("detected-format-badge").textContent = `Format: ${detectedFormat}`;
+
+      const startMs = parsed[0].tsMs;
+      for (let i = 0; i < parsed.length; i++) {
+        parsed[i].offsetMs = Math.max(0, parsed[i].tsMs - startMs);
+        if (i < parsed.length - 1) {
+          parsed[i].durationMs = Math.max(200, parsed[i + 1].tsMs - parsed[i].tsMs);
+        } else {
+          parsed[i].durationMs = 1500;
+        }
+      }
+
+      allSteps = parsed;
+      activeStepId = 0;
+      stopPlayback();
+      updateSummaryKpis();
+      applyFiltersAndRender();
+    }
+
+    function updateSummaryKpis() {
+      const totalDurationMs = allSteps.reduce((acc, s) => acc + s.durationMs, 0);
+      const thinkingCount = allSteps.filter((s) => Boolean(s.thinking)).length;
+      const subagentCount = allSteps.filter((s) => s.category === "subagent").length;
+
+      const toolCounts = {};
+      let totalToolCalls = 0;
+      let totalChars = 0;
+      let totalTokens = 0;
+
+      for (const s of allSteps) {
+        totalChars += s.totalChars;
+        totalTokens += s.estTokens;
+        for (const tc of s.toolCalls) {
+          totalToolCalls++;
+          toolCounts[tc.name] = (toolCounts[tc.name] || 0) + 1;
+        }
+      }
+
+      document.getElementById("kpi-duration").textContent = formatDuration(totalDurationMs);
+      if (allSteps.length > 0) {
+        document.getElementById("kpi-time-range").textContent =
+          `${formatJstShort(allSteps[0].tsMs)} → ${formatJstShort(allSteps[allSteps.length - 1].tsMs)}`;
+      }
+      document.getElementById("kpi-steps").textContent = `${allSteps.length} steps`;
+      document.getElementById("kpi-steps-sub").textContent =
+        `Thinking: ${thinkingCount} · Subagent: ${subagentCount}`;
+
+      document.getElementById("kpi-tools-count").textContent = `${totalToolCalls} calls`;
+      const breakdownEl = document.getElementById("kpi-tools-breakdown");
+      const sortedTools = Object.entries(toolCounts).sort((a, b) => b[1] - a[1]);
+      breakdownEl.innerHTML = sortedTools.length
+        ? sortedTools
+            .map(([name, count]) => `<span class="tool-chip">${escapeHtml(name)} <strong>×${count}</strong></span>`)
+            .join("")
+        : `<span>ツール呼出なし</span>`;
+
+      document.getElementById("kpi-tokens").textContent = `~${totalTokens.toLocaleString()} tok`;
+      document.getElementById("kpi-chars").textContent = `${totalChars.toLocaleString()} chars`;
+    }
+
+    function applyFiltersAndRender() {
+      const q = searchQuery.trim().toLowerCase();
+      filteredSteps = allSteps.filter((s) => {
+        const catOk =
+          activeCategory === "all" ||
+          s.category === activeCategory ||
+          (activeCategory === "thinking" && Boolean(s.thinking));
+        if (!catOk) return false;
+        if (!q) return true;
+        const blob = `${s.summary} ${s.thinking} ${s.content} ${JSON.stringify(s.toolCalls)}`.toLowerCase();
+        return blob.includes(q);
+      });
+
+      if (filteredSteps.length > 0 && !filteredSteps.some((s) => s.id === activeStepId)) {
+        activeStepId = filteredSteps[0].id;
+      }
+
+      renderWaterfall();
+      renderStepList();
+      renderInspector();
+      updateStepCounter();
+    }
+
+    function renderWaterfall() {
+      const container = document.getElementById("gantt-rows");
+      if (filteredSteps.length === 0) {
+        container.innerHTML = `<div class="empty-msg">条件に一致するステップがありません</div>`;
+        return;
+      }
+
+      const firstOffset = filteredSteps[0].offsetMs;
+      const lastStep = filteredSteps[filteredSteps.length - 1];
+      const totalSpan = Math.max(1000, (lastStep.offsetMs + lastStep.durationMs) - firstOffset);
+
+      container.innerHTML = filteredSteps
+        .map((s) => {
+          const leftPct = Math.min(96, Math.max(0, ((s.offsetMs - firstOffset) / totalSpan) * 100));
+          const widthPct = Math.max(2.5, Math.min(100 - leftPct, (s.durationMs / totalSpan) * 100));
+          const meta = CATEGORY_META[s.category] || CATEGORY_META.response;
+          const isActive = s.id === activeStepId;
+          const toolLabel = s.toolCalls.length > 0 ? ` · ${s.toolCalls[0].name}` : "";
+          return `
+            <div class="gantt-row ${isActive ? "active" : ""}" data-step-id="${s.id}">
+              <div class="gantt-row-label">#${s.stepIndex} ${escapeHtml(meta.label)}${escapeHtml(toolLabel)}</div>
+              <div class="gantt-track">
+                <div class="gantt-bar" style="left:${leftPct.toFixed(2)}%;width:${widthPct.toFixed(2)}%;background:${meta.color};"></div>
+              </div>
+              <div class="gantt-dur">${formatDuration(s.durationMs)}</div>
+            </div>
+          `;
+        })
+        .join("");
+
+      container.querySelectorAll(".gantt-row").forEach((row) => {
+        row.addEventListener("click", () => {
+          selectStep(Number(row.dataset.stepId));
+        });
+      });
+    }
+
+    function renderStepList() {
+      const listEl = document.getElementById("step-list");
+      document.getElementById("filtered-count-label").textContent = `${filteredSteps.length} steps`;
+
+      if (filteredSteps.length === 0) {
+        listEl.innerHTML = `<div class="empty-msg">一致するステップがありません</div>`;
+        return;
+      }
+
+      listEl.innerHTML = filteredSteps
+        .map((s) => {
+          const meta = CATEGORY_META[s.category] || CATEGORY_META.response;
+          const isActive = s.id === activeStepId;
+          const toolPills = s.toolCalls
+            .map((t) => `<span class="tool-chip">🔧 ${escapeHtml(t.name)}</span>`)
+            .join("");
+          const thinkBadge = s.thinking ? `<span class="tool-chip" style="color:#d7befb">💭 Thinking</span>` : "";
+
+          return `
+            <div class="step-item ${isActive ? "active" : ""}" data-step-id="${s.id}">
+              <div class="step-item-top">
+                <span class="step-badge" style="background:${meta.color}">#${s.stepIndex} ${escapeHtml(meta.label)}</span>
+                <span class="step-time">${formatJstShort(s.tsMs)} (+${formatDuration(s.durationMs)})</span>
+              </div>
+              <div class="step-summary">${escapeHtml(s.summary)}</div>
+              <div class="step-meta-row">
+                ${thinkBadge}
+                ${toolPills}
+                <span>~${s.estTokens} tok</span>
+              </div>
+            </div>
+          `;
+        })
+        .join("");
+
+      listEl.querySelectorAll(".step-item").forEach((item) => {
+        item.addEventListener("click", () => {
+          selectStep(Number(item.dataset.stepId));
+        });
+      });
+    }
+
+    function renderInspector() {
+      const bodyEl = document.getElementById("inspector-body");
+      const step = allSteps.find((s) => s.id === activeStepId);
+      if (!step) {
+        bodyEl.innerHTML = `<div class="empty-msg">ステップを選択してください</div>`;
+        return;
+      }
+
+      const meta = CATEGORY_META[step.category] || CATEGORY_META.response;
+      document.getElementById("inspector-header-title").textContent =
+        `STEP #${step.stepIndex} — ${meta.label.toUpperCase()}`;
+      document.getElementById("inspector-header-time").textContent = formatJstFull(step.tsMs);
+
+      const thinkingHtml = step.thinking
+        ? `
+          <div class="section-block section-thinking">
+            <div class="section-block-header">
+              <span>💭 Thinking Process (${step.thinking.length.toLocaleString()} chars)</span>
+            </div>
+            <pre class="section-pre">${escapeHtml(step.thinking)}</pre>
+          </div>
+        `
+        : "";
+
+      const toolsHtml =
+        step.toolCalls.length > 0
+          ? `
+          <div class="section-block section-tool">
+            <div class="section-block-header">
+              <span>🔧 Tool Calls (${step.toolCalls.length})</span>
+            </div>
+            ${step.toolCalls
+              .map((tc, idx) => {
+                const argsJson = typeof tc.args === "string" ? tc.args : JSON.stringify(tc.args, null, 2);
+                const outStr = tc.output ? `\n\n// Output:\n${tc.output}` : "";
+                return `
+                  <div class="tool-call-card">
+                    <div class="tool-call-subheader">
+                      <span><strong>${escapeHtml(tc.name)}</strong></span>
+                      <button type="button" class="copy-mini-btn" data-copy-idx="${idx}">JSONをコピー</button>
+                    </div>
+                    <pre class="section-pre">${escapeHtml(argsJson + outStr)}</pre>
+                  </div>
+                `;
+              })
+              .join("")}
+          </div>
+        `
+          : "";
+
+      const contentHtml = step.content
+        ? `
+          <div class="section-block section-content">
+            <div class="section-block-header">
+              <span>💬 Content / Response</span>
+            </div>
+            <pre class="section-pre">${escapeHtml(step.content)}</pre>
+          </div>
+        `
+        : "";
+
+      bodyEl.innerHTML = `
+        <div class="inspector-meta-grid">
+          <div>
+            <span class="meta-cell-label">TIMESTAMP (JST)</span>
+            <span class="meta-cell-val">${escapeHtml(formatJstFull(step.tsMs))}</span>
+          </div>
+          <div>
+            <span class="meta-cell-label">STEP DURATION / OFFSET</span>
+            <span class="meta-cell-val">${formatDuration(step.durationMs)} (+${formatDuration(step.offsetMs)})</span>
+          </div>
+          <div>
+            <span class="meta-cell-label">SOURCE / RAW TYPE</span>
+            <span class="meta-cell-val">${escapeHtml(step.source)} · ${escapeHtml(step.rawType)}</span>
+          </div>
+          <div>
+            <span class="meta-cell-label">SIZE / EST. TOKENS</span>
+            <span class="meta-cell-val">${step.totalChars.toLocaleString()} chars (~${step.estTokens} tok)</span>
+          </div>
+        </div>
+        ${thinkingHtml}
+        ${toolsHtml}
+        ${contentHtml}
+        <details class="section-block">
+          <summary class="section-block-header" style="cursor:pointer">
+            <span>{ } Raw JSONL Entry</span>
+          </summary>
+          <pre class="section-pre">${escapeHtml(JSON.stringify(step.raw, null, 2))}</pre>
+        </details>
+      `;
+
+      bodyEl.querySelectorAll(".copy-mini-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const idx = Number(btn.dataset.copyIdx);
+          const tc = step.toolCalls[idx];
+          if (!tc) return;
+          navigator.clipboard?.writeText(JSON.stringify(tc, null, 2));
+          btn.textContent = "Copied!";
+          setTimeout(() => {
+            btn.textContent = "JSONをコピー";
+          }, 1200);
+        });
+      });
+    }
+
+    function updateStepCounter() {
+      const idxInFiltered = filteredSteps.findIndex((s) => s.id === activeStepId);
+      const pos = idxInFiltered >= 0 ? idxInFiltered + 1 : 0;
+      document.getElementById("step-counter").textContent =
+        `Step ${pos} / ${filteredSteps.length}`;
+    }
+
+    function selectStep(stepId) {
+      activeStepId = stepId;
+      renderWaterfall();
+      renderStepList();
+      renderInspector();
+      updateStepCounter();
+
+      const activeItem = document.querySelector(`.step-item[data-step-id="${stepId}"]`);
+      if (activeItem) {
+        activeItem.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      }
+    }
+
+    function stepDelta(delta) {
+      if (filteredSteps.length === 0) return false;
+      const curIdx = filteredSteps.findIndex((s) => s.id === activeStepId);
+      const nextIdx = curIdx + delta;
+      if (nextIdx >= 0 && nextIdx < filteredSteps.length) {
+        selectStep(filteredSteps[nextIdx].id);
+        return true;
+      }
+      return false;
+    }
+
+    function startPlayback() {
+      if (playTimer) return;
+      const playBtn = document.getElementById("btn-play");
+      playBtn.textContent = "⏸ Pause";
+      const intervalMs = Math.round(1200 / playSpeed);
+      playTimer = setInterval(() => {
+        const moved = stepDelta(1);
+        if (!moved) {
+          stopPlayback();
+        }
+      }, intervalMs);
+    }
+
+    function stopPlayback() {
+      if (playTimer) {
+        clearInterval(playTimer);
+        playTimer = null;
+      }
+      document.getElementById("btn-play").textContent = "▶ Play";
+    }
+
+    function togglePlayback() {
+      if (playTimer) {
+        stopPlayback();
+      } else {
+        const curIdx = filteredSteps.findIndex((s) => s.id === activeStepId);
+        if (curIdx === filteredSteps.length - 1 && filteredSteps.length > 0) {
+          selectStep(filteredSteps[0].id);
+        }
+        startPlayback();
+      }
+    }
+
+    // Event bindings
+    document.getElementById("btn-sample-agy").addEventListener("click", () => {
+      document.getElementById("btn-sample-agy").classList.add("btn-primary");
+      document.getElementById("btn-sample-claude").classList.remove("btn-primary");
+      parseJsonlSession(SAMPLE_ANTIGRAVITY_JSONL);
+    });
+
+    document.getElementById("btn-sample-claude").addEventListener("click", () => {
+      document.getElementById("btn-sample-claude").classList.add("btn-primary");
+      document.getElementById("btn-sample-agy").classList.remove("btn-primary");
+      parseJsonlSession(SAMPLE_CLAUDE_CODE_JSONL);
+    });
+
+    document.getElementById("btn-prev").addEventListener("click", () => {
+      stopPlayback();
+      stepDelta(-1);
+    });
+    document.getElementById("btn-next").addEventListener("click", () => {
+      stopPlayback();
+      stepDelta(1);
+    });
+    document.getElementById("btn-play").addEventListener("click", togglePlayback);
+
+    document.querySelectorAll(".speed-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        playSpeed = Number(btn.dataset.speed) || 1;
+        document.querySelectorAll(".speed-btn").forEach((b) => b.classList.toggle("active", b === btn));
+        if (playTimer) {
+          stopPlayback();
+          startPlayback();
+        }
+      });
+    });
+
+    document.querySelectorAll("#type-filters .chip-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeCategory = btn.dataset.cat || "all";
+        document.querySelectorAll("#type-filters .chip-btn").forEach((b) => b.classList.toggle("active", b === btn));
+        applyFiltersAndRender();
+      });
+    });
+
+    document.getElementById("search-input").addEventListener("input", (e) => {
+      searchQuery = e.target.value || "";
+      applyFiltersAndRender();
+    });
+
+    // File input & Drag and drop
+    const fileInput = document.getElementById("file-input");
+    fileInput.addEventListener("change", async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const text = await file.text();
+      parseJsonlSession(text);
+    });
+
+    const dropzone = document.getElementById("dropzone");
+    dropzone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      dropzone.classList.add("dragover");
+    });
+    dropzone.addEventListener("dragleave", () => {
+      dropzone.classList.remove("dragover");
+    });
+    dropzone.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      dropzone.classList.remove("dragover");
+      const file = e.dataTransfer?.files?.[0];
+      if (!file) return;
+      const text = await file.text();
+      parseJsonlSession(text);
+    });
+
+    // Paste Modal
+    const pasteModal = document.getElementById("paste-modal");
+    const pasteTextarea = document.getElementById("paste-textarea");
+    document.getElementById("btn-open-paste").addEventListener("click", () => {
+      pasteTextarea.value = SAMPLE_ANTIGRAVITY_JSONL;
+      pasteModal.classList.add("open");
+      pasteTextarea.focus();
+    });
+    const closePasteModal = () => pasteModal.classList.remove("open");
+    document.getElementById("btn-close-paste").addEventListener("click", closePasteModal);
+    document.getElementById("btn-cancel-paste").addEventListener("click", closePasteModal);
+    document.getElementById("btn-apply-paste").addEventListener("click", () => {
+      const val = pasteTextarea.value.trim();
+      if (val) parseJsonlSession(val);
+      closePasteModal();
+    });
+
+    // Keyboard navigation
+    window.addEventListener("keydown", (e) => {
+      if (["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) return;
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        stopPlayback();
+        stepDelta(1);
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        stopPlayback();
+        stepDelta(-1);
+      } else if (e.key === " ") {
+        e.preventDefault();
+        togglePlayback();
+      }
+    });
+
+    // Initial load with built-in Antigravity multi-step sample session
+    parseJsonlSession(SAMPLE_ANTIGRAVITY_JSONL);
+  </script>
+</body>
+</html>

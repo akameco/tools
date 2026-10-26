@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="ja" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <title>Asset &amp; FIRE Monte Carlo — Zen Lab Tools</title>
+  <meta name="description" content="資産積立・配当再投資・取り崩し（FIRE）の確率分布を1,000回のモンテカルロ法で即座に描画し、URLハッシュで条件共有できるシミュレーター">
+  <style>
+    :root {
+      color-scheme: dark;
+      --color-primary: #e68a75;
+      --color-shu-red: #d64527;
+      --color-on-shu-red: #ffffff;
+      --color-background: #081617;
+      --color-on-surface: #f0f4f5;
+      --color-on-surface-variant: #9eb3b5;
+      --color-surface-container: #1b2f31;
+      --color-surface-container-low: #142527;
+      --color-surface-container-lowest: #0a1819;
+      --color-surface-container-high: #243c3e;
+      --color-ink-border: #334a4c;
+      --color-success: #4ade80;
+      --focus-ring: 0 0 0 2px var(--color-background), 0 0 0 4px var(--color-shu-red);
+      --font-mincho: "Hiragino Mincho ProN", "YuMincho", "Yu Mincho", "Noto Serif CJK JP", serif;
+      --font-gothic: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "YuGothic", "Yu Gothic", "Noto Sans CJK JP", sans-serif;
+      --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      --radius-sm: 0.25rem;
+      --radius-md: 0.375rem;
+      --radius-lg: 0.5rem;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--color-background);
+      color: var(--color-on-surface);
+      font-family: var(--font-gothic);
+      line-height: 1.6;
+    }
+    .site-header {
+      border-bottom: 1px solid var(--color-ink-border);
+      background: var(--color-surface-container-lowest);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: var(--font-mono);
+      font-size: 0.8125rem;
+    }
+    .site-header a {
+      color: var(--color-on-surface-variant);
+      text-decoration: none;
+    }
+    .site-header a:hover { color: var(--color-primary); }
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 28px 20px 64px;
+    }
+    .header-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 24px;
+    }
+    h1 {
+      font-family: var(--font-mincho);
+      font-size: clamp(1.35rem, 1.1rem + 1vw, 2rem);
+      margin: 0 0 6px;
+      letter-spacing: 0.02em;
+    }
+    .subtitle {
+      margin: 0;
+      color: var(--color-on-surface-variant);
+      font-size: 0.9rem;
+    }
+    .preset-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .btn {
+      background: var(--color-surface-container-low);
+      border: 1px solid var(--color-ink-border);
+      color: var(--color-on-surface);
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      padding: 7px 12px;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .btn:hover {
+      border-color: var(--color-primary);
+      background: var(--color-surface-container);
+    }
+    .btn-primary {
+      background: var(--color-shu-red);
+      border-color: var(--color-shu-red);
+      color: var(--color-on-shu-red);
+    }
+    .btn-primary:hover {
+      background: color-mix(in oklab, var(--color-shu-red) 85%, white);
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 350px 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+    .panel {
+      background: var(--color-surface-container-low);
+      border: 1px solid var(--color-ink-border);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+    }
+    .panel-title {
+      font-family: var(--font-mincho);
+      font-size: 1rem;
+      margin: 0 0 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--color-ink-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .control-group {
+      margin-bottom: 14px;
+    }
+    .control-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: 0.84rem;
+      margin-bottom: 4px;
+    }
+    .control-val {
+      font-family: var(--font-mono);
+      font-weight: 600;
+      color: var(--color-primary);
+      font-size: 0.88rem;
+    }
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--color-shu-red);
+      cursor: pointer;
+    }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .kpi-card {
+      background: var(--color-surface-container-low);
+      border: 1px solid var(--color-ink-border);
+      border-radius: var(--radius-md);
+      padding: 14px 16px;
+    }
+    .kpi-label {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--color-on-surface-variant);
+      margin-bottom: 4px;
+    }
+    .kpi-value {
+      font-family: var(--font-mono);
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: var(--color-on-surface);
+    }
+    .kpi-sub {
+      font-size: 0.75rem;
+      color: var(--color-on-surface-variant);
+      margin-top: 2px;
+    }
+    .chart-wrap {
+      position: relative;
+      width: 100%;
+      height: 400px;
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-top: 14px;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--color-on-surface-variant);
+    }
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .swatch {
+      width: 12px;
+      height: 12px;
+      border-radius: 2px;
+      display: inline-block;
+    }
+    .table-wrap {
+      margin-top: 20px;
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+    }
+    th, td {
+      padding: 8px 10px;
+      text-align: right;
+      border-bottom: 1px solid var(--color-ink-border);
+    }
+    th:first-child, td:first-child { text-align: left; }
+    th {
+      color: var(--color-on-surface-variant);
+      font-weight: 500;
+      background: var(--color-surface-container-lowest);
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <a href="./">← tools.zen-lab.dev</a>
+    <a href="./colophon.html#fire-monte-carlo.html">Docs &amp; History</a>
+  </header>
+  <main>
+    <div class="header-row">
+      <div>
+        <h1>資産運用・取り崩し モンテカルロ・シミュレーター</h1>
+        <p class="subtitle">積立期から取り崩し期（FIRE / 老後）までの資産推移を1,000通りの乱数でシミュレーション。条件はURLハッシュに自動反映されます。</p>
+      </div>
+      <div class="preset-bar">
+        <button type="button" class="btn" data-preset="nisa">プリセット: 新NISA積立→取り崩し</button>
+        <button type="button" class="btn" data-preset="sidefire">サイドFIRE (1,500万開始)</button>
+        <button type="button" class="btn" data-preset="dividend">高配当・堅実運用</button>
+        <button type="button" class="btn btn-primary" id="copy-url-btn">条件URLをコピー</button>
+      </div>
+    </div>
+
+    <div class="layout">
+      <aside class="panel" aria-label="シミュレーション条件">
+        <h2 class="panel-title">
+          <span>パラメータ設定</span>
+          <button type="button" class="btn" id="reseed-btn" style="padding:3px 8px;font-size:0.7rem;">乱数再試行</button>
+        </h2>
+
+        <div class="control-group">
+          <div class="control-label">
+            <label for="initial">初期資産額</label>
+            <span class="control-val" id="initial-val">500 万円</span>
+          </div>
+          <input type="range" id="initial" min="0" max="10000" step="50" value="500">
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <label for="monthlyAdd">積立期の毎月積立額</label>
+            <span class="control-val" id="monthlyAdd-val">15 万円/月</span>
+          </div>
+          <input type="range" id="monthlyAdd" min="0" max="60" step="1" value="15">
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <label for="accumYears">積立期間</label>
+            <span class="control-val" id="accumYears-val">15 年</span>
+          </div>
+          <input type="range" id="accumYears" min="0" max="40" step="1" value="15">
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <label for="withdrawYears">取り崩し期間</label>
+            <span class="control-val" id="withdrawYears-val">25 年</span>
+          </div>
+          <input type="range" id="withdrawYears" min="0" max="50" step="1" value="25">
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <label for="monthlyWithdraw">取り崩し期の毎月支出(不足分)</label>
+            <span class="control-val" id="monthlyWithdraw-val">22 万円/月</span>
+          </div>
+          <input type="range" id="monthlyWithdraw" min="0" max="80" step="1" value="22">
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <label for="meanReturn">期待リターン (年率・名目)</label>
+            <span class="control-val" id="meanReturn-val">6.5 %</span>
+          </div>
+          <input type="range" id="meanReturn" min="1" max="14" step="0.5" value="6.5">
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <label for="volatility">リスク・標準偏差 (年率)</label>
+            <span class="control-val" id="volatility-val">15.0 %</span>
+          </div>
+          <input type="range" id="volatility" min="2" max="30" step="0.5" value="15">
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <label for="inflation">インフレ率 (年率・取り崩し額増額)</label>
+            <span class="control-val" id="inflation-val">1.5 %</span>
+          </div>
+          <input type="range" id="inflation" min="0" max="5" step="0.25" value="1.5">
+        </div>
+      </aside>
+
+      <section>
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-label">資産枯渇しない確率 (成功率)</div>
+            <div class="kpi-value" id="kpi-success">--%</div>
+            <div class="kpi-sub" id="kpi-horizon-sub">40年後の生存率</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">積立終了時点の中央値</div>
+            <div class="kpi-value" id="kpi-peak">-- 万円</div>
+            <div class="kpi-sub" id="kpi-principal-sub">元本合計: -- 万円</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">最終時点の中央値 (上位50%)</div>
+            <div class="kpi-value" id="kpi-median">-- 万円</div>
+            <div class="kpi-sub" id="kpi-p75-sub">上位25%: -- 万円</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">下位10%シナリオ (悲観ケース)</div>
+            <div class="kpi-value" id="kpi-p10">-- 万円</div>
+            <div class="kpi-sub">1,000試行の下位100番目</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-title">
+            <span>資産推移パーセンタイル分布 (1,000回試行)</span>
+            <span id="hover-status" style="font-family:var(--font-mono);font-size:0.78rem;color:var(--color-primary);">グラフ上にカーソルを合わせると年次詳細を表示</span>
+          </div>
+          <div class="chart-wrap">
+            <canvas id="mc-canvas"></canvas>
+          </div>
+          <div class="legend">
+            <span class="legend-item"><span class="swatch" style="background:#d64527;"></span>中央値 (50%)</span>
+            <span class="legend-item"><span class="swatch" style="background:rgba(214,69,39,0.35);"></span>25%〜75% 範囲</span>
+            <span class="legend-item"><span class="swatch" style="background:rgba(230,138,117,0.16);"></span>10%〜90% 範囲</span>
+            <span class="legend-item"><span class="swatch" style="background:#9eb3b5;"></span>累計投入元本</span>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>経過年</th>
+                  <th>フェーズ</th>
+                  <th>累計元本</th>
+                  <th>下位10%</th>
+                  <th>下位25%</th>
+                  <th>中央値 (50%)</th>
+                  <th>上位25%</th>
+                  <th>上位10%</th>
+                </tr>
+              </thead>
+              <tbody id="milestone-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const FIELDS = [
+      "initial",
+      "monthlyAdd",
+      "accumYears",
+      "withdrawYears",
+      "monthlyWithdraw",
+      "meanReturn",
+      "volatility",
+      "inflation"
+    ];
+
+    const PRESETS = {
+      nisa: {
+        initial: 500,
+        monthlyAdd: 15,
+        accumYears: 15,
+        withdrawYears: 25,
+        monthlyWithdraw: 22,
+        meanReturn: 6.5,
+        volatility: 15,
+        inflation: 1.5
+      },
+      sidefire: {
+        initial: 1500,
+        monthlyAdd: 12,
+        accumYears: 10,
+        withdrawYears: 30,
+        monthlyWithdraw: 15,
+        meanReturn: 6.0,
+        volatility: 14,
+        inflation: 1.5
+      },
+      dividend: {
+        initial: 2000,
+        monthlyAdd: 10,
+        accumYears: 12,
+        withdrawYears: 28,
+        monthlyWithdraw: 16,
+        meanReturn: 5.0,
+        volatility: 10.5,
+        inflation: 1.0
+      }
+    };
+
+    let seedOffset = 42;
+    let latestSeries = null;
+    let hoverYear = null;
+
+    function mulberry32(a) {
+      return function() {
+        let t = (a += 0x6d2b79f5);
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+
+    function formatManYen(val) {
+      const rounded = Math.round(val);
+      if (rounded >= 10000) {
+        const oku = (rounded / 10000).toFixed(2);
+        return `${oku} 億円`;
+      }
+      return `${rounded.toLocaleString("ja-JP")} 万円`;
+    }
+
+    function getState() {
+      const s = {};
+      for (const f of FIELDS) {
+        s[f] = parseFloat(document.getElementById(f).value);
+      }
+      return s;
+    }
+
+    function setState(stateObj) {
+      for (const f of FIELDS) {
+        if (stateObj[f] !== undefined && !Number.isNaN(Number(stateObj[f]))) {
+          document.getElementById(f).value = String(stateObj[f]);
+        }
+      }
+      updateLabels();
+    }
+
+    function updateLabels() {
+      const s = getState();
+      document.getElementById("initial-val").textContent = `${s.initial.toLocaleString("ja-JP")} 万円`;
+      document.getElementById("monthlyAdd-val").textContent = `${s.monthlyAdd} 万円/月`;
+      document.getElementById("accumYears-val").textContent = `${s.accumYears} 年`;
+      document.getElementById("withdrawYears-val").textContent = `${s.withdrawYears} 年`;
+      document.getElementById("monthlyWithdraw-val").textContent = `${s.monthlyWithdraw} 万円/月`;
+      document.getElementById("meanReturn-val").textContent = `${s.meanReturn.toFixed(1)} %`;
+      document.getElementById("volatility-val").textContent = `${s.volatility.toFixed(1)} %`;
+      document.getElementById("inflation-val").textContent = `${s.inflation.toFixed(2)} %`;
+    }
+
+    function syncHashFromState(s) {
+      const params = new URLSearchParams();
+      for (const f of FIELDS) {
+        params.set(f, String(s[f]));
+      }
+      history.replaceState(null, "", `#${params.toString()}`);
+    }
+
+    function loadStateFromHash() {
+      if (!location.hash || location.hash.length < 2) return;
+      const params = new URLSearchParams(location.hash.slice(1));
+      const partial = {};
+      for (const f of FIELDS) {
+        if (params.has(f)) partial[f] = parseFloat(params.get(f));
+      }
+      setState(partial);
+    }
+
+    function runMonteCarlo() {
+      const s = getState();
+      updateLabels();
+      syncHashFromState(s);
+
+      const totalYears = Math.max(1, s.accumYears + s.withdrawYears);
+      const runs = 1000;
+      const mu = s.meanReturn / 100;
+      const sigma = s.volatility / 100;
+      const inf = s.inflation / 100;
+      const drift = mu - 0.5 * sigma * sigma;
+
+      const rng = mulberry32(100000 + seedOffset);
+      function randNormal() {
+        let u = 0, v = 0;
+        while (u === 0) u = rng();
+        while (v === 0) v = rng();
+        return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+      }
+
+      const yearlyValues = Array.from({ length: totalYears + 1 }, () => new Float64Array(runs));
+      let survivedCount = 0;
+
+      for (let r = 0; r < runs; r++) {
+        let wealth = s.initial;
+        yearlyValues[0][r] = wealth;
+        let depleted = false;
+
+        for (let y = 1; y <= totalYears; y++) {
+          const z = randNormal();
+          const annualGrowth = Math.exp(drift + sigma * z);
+          if (y <= s.accumYears) {
+            wealth = wealth * annualGrowth + s.monthlyAdd * 12;
+          } else {
+            const yearsInWithdraw = y - s.accumYears - 1;
+            const annualWithdrawal = s.monthlyWithdraw * 12 * Math.pow(1 + inf, yearsInWithdraw);
+            wealth = wealth * annualGrowth - annualWithdrawal;
+          }
+          if (wealth <= 0) {
+            wealth = 0;
+            depleted = true;
+          }
+          yearlyValues[y][r] = wealth;
+        }
+        if (!depleted) survivedCount++;
+      }
+
+      const p10 = [];
+      const p25 = [];
+      const p50 = [];
+      const p75 = [];
+      const p90 = [];
+      const principal = [];
+
+      for (let y = 0; y <= totalYears; y++) {
+        const arr = Float64Array.from(yearlyValues[y]).sort();
+        p10.push(arr[Math.floor(runs * 0.1)]);
+        p25.push(arr[Math.floor(runs * 0.25)]);
+        p50.push(arr[Math.floor(runs * 0.5)]);
+        p75.push(arr[Math.floor(runs * 0.75)]);
+        p90.push(arr[Math.floor(runs * 0.9)]);
+        const addedYears = Math.min(y, s.accumYears);
+        principal.push(s.initial + addedYears * s.monthlyAdd * 12);
+      }
+
+      latestSeries = { s, totalYears, p10, p25, p50, p75, p90, principal, survivedRate: (survivedCount / runs) * 100 };
+      renderKPIs(latestSeries);
+      renderTable(latestSeries);
+      drawChart();
+    }
+
+    function renderKPIs(data) {
+      const { s, totalYears, p10, p50, p75, principal, survivedRate } = data;
+      const successEl = document.getElementById("kpi-success");
+      successEl.textContent = `${survivedRate.toFixed(1)}%`;
+      successEl.style.color = survivedRate >= 85 ? "var(--color-success)" : survivedRate >= 60 ? "var(--color-primary)" : "var(--color-shu-red)";
+      document.getElementById("kpi-horizon-sub").textContent = `${totalYears}年後まで資産維持`;
+
+      const peakIdx = s.accumYears;
+      document.getElementById("kpi-peak").textContent = formatManYen(p50[peakIdx]);
+      document.getElementById("kpi-principal-sub").textContent = `投入元本: ${formatManYen(principal[peakIdx])}`;
+
+      document.getElementById("kpi-median").textContent = formatManYen(p50[totalYears]);
+      document.getElementById("kpi-p75-sub").textContent = `上位25%: ${formatManYen(p75[totalYears])}`;
+      document.getElementById("kpi-p10").textContent = formatManYen(p10[totalYears]);
+    }
+
+    function renderTable(data) {
+      const { s, totalYears, p10, p25, p50, p75, p90, principal } = data;
+      const tbody = document.getElementById("milestone-tbody");
+      const step = totalYears <= 15 ? 2 : totalYears <= 30 ? 5 : 10;
+      const years = new Set([0, s.accumYears, totalYears]);
+      for (let y = step; y < totalYears; y += step) years.add(y);
+      const sortedYears = Array.from(years).sort((a, b) => a - b);
+
+      tbody.innerHTML = sortedYears
+        .map((y) => {
+          const phase = y === 0 ? "開始" : y <= s.accumYears ? "積立期" : "取り崩し期";
+          return `<tr>
+            <td>${y}年目</td>
+            <td>${phase}</td>
+            <td>${formatManYen(principal[y])}</td>
+            <td>${formatManYen(p10[y])}</td>
+            <td>${formatManYen(p25[y])}</td>
+            <td style="color:var(--color-primary);font-weight:700;">${formatManYen(p50[y])}</td>
+            <td>${formatManYen(p75[y])}</td>
+            <td>${formatManYen(p90[y])}</td>
+          </tr>`;
+        })
+        .join("");
+    }
+
+    function drawChart() {
+      if (!latestSeries) return;
+      const canvas = document.getElementById("mc-canvas");
+      const rect = canvas.parentElement.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      const ctx = canvas.getContext("2d");
+      ctx.scale(dpr, dpr);
+
+      const W = rect.width;
+      const H = rect.height;
+      const pad = { top: 20, right: 24, bottom: 34, left: 68 };
+      const plotW = W - pad.left - pad.right;
+      const plotH = H - pad.top - pad.bottom;
+
+      ctx.clearRect(0, 0, W, H);
+
+      const { s, totalYears, p10, p25, p50, p75, p90, principal } = latestSeries;
+      const maxVal = Math.max(...p90, ...principal, 100) * 1.06;
+
+      const xOf = (y) => pad.left + (y / totalYears) * plotW;
+      const yOf = (v) => pad.top + plotH - (Math.min(v, maxVal) / maxVal) * plotH;
+
+      // Grid lines
+      ctx.strokeStyle = "#243c3e";
+      ctx.lineWidth = 1;
+      ctx.font = "11px ui-monospace, monospace";
+      ctx.fillStyle = "#9eb3b5";
+      ctx.textAlign = "right";
+      const yTicks = 5;
+      for (let i = 0; i <= yTicks; i++) {
+        const val = (maxVal / yTicks) * i;
+        const y = yOf(val);
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(W - pad.right, y);
+        ctx.stroke();
+        const label = val >= 10000 ? `${(val / 10000).toFixed(1)}億` : `${Math.round(val)}万`;
+        ctx.fillText(label, pad.left - 8, y + 4);
+      }
+
+      // Phase divider (Accumulation -> Withdrawal)
+      if (s.accumYears > 0 && s.accumYears < totalYears) {
+        const splitX = xOf(s.accumYears);
+        ctx.save();
+        ctx.strokeStyle = "rgba(230, 138, 117, 0.5)";
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(splitX, pad.top);
+        ctx.lineTo(splitX, pad.top + plotH);
+        ctx.stroke();
+        ctx.fillStyle = "#e68a75";
+        ctx.textAlign = "center";
+        ctx.fillText("← 積立 / 取り崩し →", splitX, pad.top + 12);
+        ctx.restore();
+      }
+
+      function fillBand(upper, lower, color) {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        for (let y = 0; y <= totalYears; y++) {
+          const px = xOf(y);
+          const py = yOf(upper[y]);
+          if (y === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        for (let y = totalYears; y >= 0; y--) {
+          ctx.lineTo(xOf(y), yOf(lower[y]));
+        }
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      fillBand(p90, p10, "rgba(230, 138, 117, 0.14)");
+      fillBand(p75, p25, "rgba(214, 69, 39, 0.30)");
+
+      // Principal line
+      ctx.strokeStyle = "#9eb3b5";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      for (let y = 0; y <= totalYears; y++) {
+        if (y === 0) ctx.moveTo(xOf(y), yOf(principal[y]));
+        else ctx.lineTo(xOf(y), yOf(principal[y]));
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Median p50 line
+      ctx.strokeStyle = "#d64527";
+      ctx.lineWidth = 2.6;
+      ctx.beginPath();
+      for (let y = 0; y <= totalYears; y++) {
+        if (y === 0) ctx.moveTo(xOf(y), yOf(p50[y]));
+        else ctx.lineTo(xOf(y), yOf(p50[y]));
+      }
+      ctx.stroke();
+
+      // X-axis labels
+      ctx.fillStyle = "#9eb3b5";
+      ctx.textAlign = "center";
+      const xStep = Math.max(1, Math.round(totalYears / 8));
+      for (let y = 0; y <= totalYears; y += xStep) {
+        ctx.fillText(`${y}年`, xOf(y), H - 10);
+      }
+
+      // Hover cursor
+      if (hoverYear !== null && hoverYear >= 0 && hoverYear <= totalYears) {
+        const hx = xOf(hoverYear);
+        ctx.strokeStyle = "#f0f4f5";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(hx, pad.top);
+        ctx.lineTo(hx, pad.top + plotH);
+        ctx.stroke();
+
+        ctx.fillStyle = "#d64527";
+        ctx.beginPath();
+        ctx.arc(hx, yOf(p50[hoverYear]), 4.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Event bindings
+    for (const f of FIELDS) {
+      document.getElementById(f).addEventListener("input", runMonteCarlo);
+    }
+
+    for (const btn of document.querySelectorAll("[data-preset]")) {
+      btn.addEventListener("click", () => {
+        const key = btn.getAttribute("data-preset");
+        if (PRESETS[key]) {
+          setState(PRESETS[key]);
+          runMonteCarlo();
+        }
+      });
+    }
+
+    document.getElementById("reseed-btn").addEventListener("click", () => {
+      seedOffset += 7;
+      runMonteCarlo();
+    });
+
+    document.getElementById("copy-url-btn").addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      await navigator.clipboard.writeText(location.href);
+      const orig = btn.textContent;
+      btn.textContent = "コピーしました!";
+      setTimeout(() => { btn.textContent = orig; }, 1600);
+    });
+
+    const canvasEl = document.getElementById("mc-canvas");
+    canvasEl.addEventListener("mousemove", (e) => {
+      if (!latestSeries) return;
+      const rect = canvasEl.getBoundingClientRect();
+      const padLeft = 68;
+      const padRight = 24;
+      const plotW = rect.width - padLeft - padRight;
+      const ratio = (e.clientX - rect.left - padLeft) / plotW;
+      const y = Math.round(ratio * latestSeries.totalYears);
+      if (y >= 0 && y <= latestSeries.totalYears) {
+        hoverYear = y;
+        document.getElementById("hover-status").textContent =
+          `${y}年目 — 中央値: ${formatManYen(latestSeries.p50[y])} / 下位10%: ${formatManYen(latestSeries.p10[y])} / 上位10%: ${formatManYen(latestSeries.p90[y])}`;
+        drawChart();
+      }
+    });
+    canvasEl.addEventListener("mouseleave", () => {
+      hoverYear = null;
+      document.getElementById("hover-status").textContent = "グラフ上にカーソルを合わせると年次詳細を表示";
+      drawChart();
+    });
+    window.addEventListener("resize", drawChart);
+
+    loadStateFromHash();
+    runMonteCarlo();
+  </script>
+</body>
+</html>
